@@ -75,6 +75,19 @@ curl -s http://localhost:8787/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+### Using the local server with Claude Code
+
+You can connect Claude Code directly to the local dev server instead of using curl.
+
+1. Start the dev server: `npm run dev`
+2. Copy the example config: `cp .mcp.json.example .mcp.json`
+3. Edit `.mcp.json` and replace the placeholder with your `DEV_TOKEN` from `.dev.vars`
+4. Restart Claude Code (or run `/mcp` to reload) — it picks up `.mcp.json` automatically
+
+The `grocery-store` server will appear in your MCP server list. Claude can then call pantry and meal planning tools directly against your local D1 database.
+
+`.mcp.json` is gitignored because it contains your dev token. `.mcp.json.example` is the committed template.
+
 ### Tests
 
 ```bash
