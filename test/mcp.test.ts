@@ -73,6 +73,7 @@ describe("tools/list", () => {
       "pantry_bulk_update",
       "meal_plan_get",
       "meal_plan_set",
+      "meal_plan_delete",
     ]);
   });
 
@@ -150,39 +151,114 @@ describe("pantry", () => {
 // ── Meal plans ────────────────────────────────────────────────────────────
 
 describe("meal plans", () => {
-  const WEEK = "2026-05-04";
+  const WEEK = "2026-05-04"; // Monday
+  const MON = "2026-05-04";
+  const TUE = "2026-05-05";
+  const WED = "2026-05-06";
+  const THU = "2026-05-07";
+  const FRI = "2026-05-08";
 
-  it("returns message when no plan exists", async () => {
+  it("returns message when no entries exist", async () => {
     const text = await resultText(20, "meal_plan_get", { week_start: WEEK });
-    expect(text).toContain("No meal plan found");
+    expect(text).toContain("No meals found");
   });
 
-  it("sets meals for a week", async () => {
+  it("sets a single meal with name only", async () => {
     const text = await resultText(21, "meal_plan_set", {
-      week_start: WEEK,
-      meals: { mon: "pasta", tue: "stir fry", wed: "soup" },
+      meals: [{ date: MON, name: "pasta" }],
     });
-    const plan = JSON.parse(text) as { week_start: string; meals: Record<string, string> };
-    expect(plan.week_start).toBe(WEEK);
-    expect(plan.meals["mon"]).toBe("pasta");
-    expect(plan.meals["tue"]).toBe("stir fry");
+    const entries = JSON.parse(text) as Array<{ date: string; name: string }>;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.date).toBe(MON);
+    expect(entries[0]?.name).toBe("pasta");
   });
 
-  it("retrieves the meal plan", async () => {
-    const text = await resultText(22, "meal_plan_get", { week_start: WEEK });
-    const plan = JSON.parse(text) as { meals: Record<string, string> };
-    expect(plan.meals["mon"]).toBe("pasta");
+  it("sets multiple meals with ingredients and steps", async () => {
+    const text = await resultText(22, "meal_plan_set", {
+      meals: [
+        {
+          date: TUE,
+          name: "stir fry",
+          ingredients: [{ name: "tofu", quantity: 400, unit: "g" }],
+          steps: ["Press tofu", "Fry vegetables", "Combine"],
+        },
+        { date: WED, name: "soup" },
+      ],
+    });
+    const entries = JSON.parse(text) as Array<{
+      date: string;
+      name: string;
+      ingredients?: Array<{ name: string }>;
+      steps?: string[];
+    }>;
+    expect(entries).toHaveLength(2);
+    const tue = entries.find((e) => e.date === TUE);
+    expect(tue?.name).toBe("stir fry");
+    expect(tue?.ingredients?.[0]?.name).toBe("tofu");
+    expect(tue?.steps).toHaveLength(3);
   });
 
-  it("merges a partial update", async () => {
-    await resultText(23, "meal_plan_set", {
-      week_start: WEEK,
-      meals: { thu: "tacos", fri: "pizza" },
+  it("retrieves by week_start", async () => {
+    const text = await resultText(23, "meal_plan_get", { week_start: WEEK });
+    const entries = JSON.parse(text) as Array<{ date: string; name: string }>;
+    expect(entries.some((e) => e.date === MON && e.name === "pasta")).toBe(true);
+    expect(entries.some((e) => e.date === TUE && e.name === "stir fry")).toBe(true);
+    expect(entries.some((e) => e.date === WED && e.name === "soup")).toBe(true);
+  });
+
+  it("retrieves a single day", async () => {
+    const text = await resultText(24, "meal_plan_get", { date: TUE });
+    const entries = JSON.parse(text) as Array<{ date: string; name: string }>;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.date).toBe(TUE);
+  });
+
+  it("retrieves an arbitrary date range", async () => {
+    const text = await resultText(25, "meal_plan_get", { date_from: TUE, date_to: WED });
+    const entries = JSON.parse(text) as Array<{ date: string }>;
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.date).sort()).toEqual([TUE, WED]);
+  });
+
+  it("upserts — updating an existing entry", async () => {
+    await resultText(26, "meal_plan_set", {
+      meals: [{ date: MON, name: "updated pasta", steps: ["Boil water", "Cook pasta"] }],
     });
-    const text = await resultText(24, "meal_plan_get", { week_start: WEEK });
-    const plan = JSON.parse(text) as { meals: Record<string, string> };
-    expect(plan.meals["mon"]).toBe("pasta");
-    expect(plan.meals["thu"]).toBe("tacos");
-    expect(plan.meals["fri"]).toBe("pizza");
+    const text = await resultText(27, "meal_plan_get", { date: MON });
+    const entries = JSON.parse(text) as Array<{ name: string; steps?: string[] }>;
+    expect(entries[0]?.name).toBe("updated pasta");
+    expect(entries[0]?.steps).toHaveLength(2);
+  });
+
+  it("adds more days without affecting existing ones", async () => {
+    await resultText(28, "meal_plan_set", {
+      meals: [
+        { date: THU, name: "tacos" },
+        { date: FRI, name: "pizza" },
+      ],
+    });
+    const text = await resultText(29, "meal_plan_get", { week_start: WEEK });
+    const entries = JSON.parse(text) as Array<{ date: string; name: string }>;
+    expect(entries.some((e) => e.date === WED && e.name === "soup")).toBe(true);
+    expect(entries.some((e) => e.date === THU && e.name === "tacos")).toBe(true);
+    expect(entries.some((e) => e.date === FRI && e.name === "pizza")).toBe(true);
+  });
+
+  it("deletes specific entries", async () => {
+    const text = await resultText(30, "meal_plan_delete", { dates: [WED, THU] });
+    expect(text).toContain("Deleted 2");
+    const remaining = await resultText(31, "meal_plan_get", { week_start: WEEK });
+    const entries = JSON.parse(remaining) as Array<{ date: string }>;
+    expect(entries.every((e) => e.date !== WED && e.date !== THU)).toBe(true);
+  });
+
+  it("returns error when meals is missing", async () => {
+    const res = await call(32, "meal_plan_set", {});
+    expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("returns error when a meal entry is missing date or name", async () => {
+    const res = await call(33, "meal_plan_set", { meals: [{ date: MON }] });
+    expect(res.result?.["isError"]).toBe(true);
   });
 });

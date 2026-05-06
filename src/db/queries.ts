@@ -1,4 +1,4 @@
-import type { MealPlan, PantryItem, User } from "../types.ts";
+import type { MealEntry, MealIngredient, PantryItem, User } from "../types.ts";
 
 // ── Users / households ───────────────────────────────────────────────────
 
@@ -142,44 +142,62 @@ export async function markPantryItemsOut(
 
 // ── Meals ────────────────────────────────────────────────────────────────
 
-export async function getMealPlan(
+export async function getMealEntries(
   db: D1Database,
   householdId: string,
-  weekStart: string,
-): Promise<MealPlan | null> {
-  return db
-    .prepare("SELECT * FROM meal_plans WHERE household_id = ? AND week_start = ?")
-    .bind(householdId, weekStart)
-    .first<MealPlan>();
+  dateFrom: string,
+  dateTo: string,
+): Promise<MealEntry[]> {
+  const result = await db
+    .prepare(
+      "SELECT * FROM meal_entries WHERE household_id = ? AND date >= ? AND date <= ? ORDER BY date",
+    )
+    .bind(householdId, dateFrom, dateTo)
+    .all<MealEntry>();
+  return result.results;
 }
 
-export async function upsertMealPlan(
+export async function upsertMealEntry(
   db: D1Database,
   householdId: string,
-  weekStart: string,
-  meals: Record<string, string | undefined>,
-): Promise<MealPlan> {
-  const now = Date.now();
-  const existing = await getMealPlan(db, householdId, weekStart);
-
-  if (existing) {
-    const merged = { ...(JSON.parse(existing.meals) as Record<string, string>), ...meals };
-    const mealsJson = JSON.stringify(merged);
-    await db
-      .prepare("UPDATE meal_plans SET meals = ? WHERE id = ?")
-      .bind(mealsJson, existing.id)
-      .run();
-    return { ...existing, meals: mealsJson };
-  }
-
+  entry: { date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] },
+): Promise<MealEntry> {
   const id = crypto.randomUUID();
-  const mealsJson = JSON.stringify(meals);
+  const now = Date.now();
+  const ingredients = entry.ingredients ? JSON.stringify(entry.ingredients) : null;
+  const steps = entry.steps ? JSON.stringify(entry.steps) : null;
+
   await db
     .prepare(
-      "INSERT INTO meal_plans (id, household_id, week_start, meals, created_at) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO meal_entries (id, household_id, date, name, ingredients, steps, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(household_id, date) DO UPDATE SET
+         name = excluded.name,
+         ingredients = excluded.ingredients,
+         steps = excluded.steps`,
     )
-    .bind(id, householdId, weekStart, mealsJson, now)
+    .bind(id, householdId, entry.date, entry.name, ingredients, steps, now)
     .run();
 
-  return { id, household_id: householdId, week_start: weekStart, meals: mealsJson, created_at: now };
+  const saved = await db
+    .prepare("SELECT * FROM meal_entries WHERE household_id = ? AND date = ?")
+    .bind(householdId, entry.date)
+    .first<MealEntry>();
+  return saved!;
+}
+
+export async function deleteMealEntries(
+  db: D1Database,
+  householdId: string,
+  dates: string[],
+): Promise<number> {
+  if (dates.length === 0) return 0;
+  const placeholders = dates.map(() => "?").join(", ");
+  const result = await db
+    .prepare(
+      `DELETE FROM meal_entries WHERE household_id = ? AND date IN (${placeholders})`,
+    )
+    .bind(householdId, ...dates)
+    .run();
+  return result.meta.changes;
 }

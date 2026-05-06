@@ -24,13 +24,16 @@ CREATE TABLE pantry_items (
   updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE meal_plans (
+CREATE TABLE meal_entries (
   id TEXT PRIMARY KEY,
   household_id TEXT NOT NULL REFERENCES households(id),
-  week_start TEXT NOT NULL,     -- ISO date, Monday of the week
-  meals TEXT NOT NULL,          -- JSON blob: { mon: "...", tue: "...", ... }
-  created_at INTEGER NOT NULL
+  date TEXT NOT NULL,           -- ISO date of the actual day, e.g. '2026-05-07'
+  name TEXT NOT NULL,
+  ingredients TEXT,             -- JSON: [{name, quantity?, unit?}]
+  steps TEXT,                   -- JSON: string[]
+  created_at INTEGER NOT NULL,
+  UNIQUE(household_id, date)
 );
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
-CREATE INDEX idx_meals_household_week ON meal_plans(household_id, week_start);
+CREATE INDEX idx_meal_entries_household_date ON meal_entries(household_id, date);

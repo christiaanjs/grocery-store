@@ -32,22 +32,27 @@ export interface PantryItem {
   updated_at: number;
 }
 
-export interface MealPlan {
+export interface MealIngredient {
+  name: string;
+  quantity?: number;
+  unit?: string;
+}
+
+export interface MealEntry {
   id: string;
   household_id: string;
-  week_start: string;
-  meals: string; // JSON-encoded DayMeals
+  date: string;          // ISO date
+  name: string;
+  ingredients: string | null;  // JSON-encoded MealIngredient[]
+  steps: string | null;        // JSON-encoded string[]
   created_at: number;
 }
 
-export interface DayMeals {
-  mon?: string;
-  tue?: string;
-  wed?: string;
-  thu?: string;
-  fri?: string;
-  sat?: string;
-  sun?: string;
+export interface MealEntryData {
+  date: string;
+  name: string;
+  ingredients?: MealIngredient[];
+  steps?: string[];
 }
 
 // ── MCP protocol types ───────────────────────────────────────────────────
