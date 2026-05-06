@@ -8,7 +8,7 @@ database_name = "grocery-store-db"
 database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
 
 [vars]
-ENABLE_OAUTH = "false"
+ENABLE_OAUTH = "true"
 
 # Secrets (never put values here — set via: wrangler secret put <NAME>)
 # DEV_TOKEN
