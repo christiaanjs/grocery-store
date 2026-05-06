@@ -5,7 +5,7 @@ compatibility_date = "2025-05-06"
 [[d1_databases]]
 binding = "DB"
 database_name = "grocery-store-db"
-database_id = "" # fill in after: wrangler d1 create dinner-planner-db
+database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
 
 [vars]
 ENABLE_OAUTH = "false"

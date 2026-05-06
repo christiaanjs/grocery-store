@@ -2,7 +2,7 @@
 
 ## Current status
 
-**Pre-implementation.** The repo contains only this file — no source files, no `package.json`, no `wrangler.toml` yet. The sections below are the intended design; when starting work, scaffold the project first.
+**Phase 1 complete.** Core MCP server is implemented and tested locally. Auth uses a hardcoded dev token (`X-Dev-Token`). OAuth (Phase 2) is not yet implemented — Claude.ai integration requires it.
 
 ---
 
@@ -20,7 +20,7 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 
 ---
 
-## Repository structure (target layout)
+## Repository structure
 
 ```
 /
@@ -32,14 +32,21 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 │   │       ├── pantry.ts
 │   │       └── meals.ts
 │   ├── auth/
-│   │   ├── oauth.ts      # OAuth 2.1 / PKCE flow
-│   │   └── middleware.ts # Auth checks for protected routes
+│   │   └── middleware.ts # Auth checks — dev token now, OAuth Phase 2
 │   ├── db/
 │   │   ├── schema.sql    # Source of truth for D1 schema
 │   │   └── queries.ts    # Typed query helpers
 │   └── types.ts          # Shared TypeScript types
-├── migrations/           # D1 migration files (wrangler generate)
+├── migrations/           # D1 migration files (wrangler d1 migrations create)
 ├── test/
+│   ├── mcp.test.ts       # Integration tests (vitest + @cloudflare/vitest-pool-workers)
+│   ├── setup.ts          # Applies D1 migrations before each test file
+│   ├── env.d.ts          # Cloudflare.Env augmentation for test bindings
+│   └── tsconfig.json     # Extends root tsconfig, adds workers/vitest types
+├── .github/workflows/
+│   └── ci.yml            # Typecheck + test on push/PR
+├── vitest.config.ts
+├── tsconfig.json
 ├── wrangler.toml
 ├── package.json
 └── CLAUDE.md             # This file
@@ -54,10 +61,16 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 npm install
 
 # Local development (Worker + D1 local)
-npm run dev               # wrangler dev --local
+npm run dev               # wrangler dev
 
-# Run tests
-npm test
+# Run tests (single pass)
+npm test                  # vitest run
+
+# Run tests in watch mode
+npm run test:watch        # vitest
+
+# Type-check (src + test)
+npm run typecheck         # tsc --noEmit && tsc --noEmit -p test/tsconfig.json
 
 # Apply DB migrations locally
 npm run migrate:local     # wrangler d1 migrations apply grocery-store-db --local
@@ -83,8 +96,10 @@ npm run logs              # wrangler tail
   checked in `auth/middleware.ts`. OAuth is added last.
 - Use `--local` flag for all D1 operations during development — this hits a local SQLite
   file, not the remote database.
-- The MCP server can be tested without Claude using curl against `http://localhost:8787`.
-  See `test/` for example requests.
+- The MCP server can be tested manually using curl against `http://localhost:8787`.
+- Automated integration tests live in `test/mcp.test.ts` — run with `npm test`. Tests use
+  `@cloudflare/vitest-pool-workers` which runs code in a real Workers runtime (Miniflare)
+  with an in-memory D1 database. Migrations are applied automatically via `test/setup.ts`.
 
 ---
 
