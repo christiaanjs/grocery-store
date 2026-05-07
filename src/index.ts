@@ -36,14 +36,16 @@ export default {
       }
     }
 
-    // Accept MCP requests at both / (Claude.ai sends to the base URL you provide)
-    // and /mcp (for curl testing).
-    if (method === "POST" && (pathname === "/" || pathname === "/mcp")) {
+    if (method === "POST" && pathname === "/mcp") {
       const auth = await authenticate(request, env);
       if (!auth) {
         return new Response("Unauthorized", { status: 401 });
       }
       return handleMcp(request, env, auth.userId);
+    }
+
+    if (pathname === "/") {
+      return new Response("grocery-store MCP server", { status: 200 });
     }
 
     return new Response("Not found", { status: 404 });

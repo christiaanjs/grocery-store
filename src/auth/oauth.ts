@@ -50,7 +50,7 @@ function isValidRedirectUri(uri: unknown): uri is string {
 export function handleProtectedResource(request: Request): Response {
   const issuer = issuerFromRequest(request);
   return jsonResponse({
-    resource: issuer,
+    resource: `${issuer}/mcp`,
     authorization_servers: [issuer],
     bearer_methods_supported: ["header"],
   });
