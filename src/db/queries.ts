@@ -323,7 +323,9 @@ export async function upsertMealFeedback(
     .prepare("SELECT name, ingredients, steps FROM meal_entries WHERE household_id = ? AND date = ?")
     .bind(householdId, date)
     .first<{ name: string; ingredients: string | null; steps: string | null }>();
-  const currentSnapshot = mealEntry ? JSON.stringify(mealEntry) : null;
+  const currentSnapshot = mealEntry
+    ? JSON.stringify({ name: mealEntry.name, ingredients: mealEntry.ingredients, steps: mealEntry.steps })
+    : null;
 
   // Find existing feedback whose snapshot matches the current meal (same meal = edit, different = new record)
   const existing = currentSnapshot !== null
@@ -385,7 +387,7 @@ export interface MealSearchRow {
   ingredients: string | null;
   steps: string | null;
   rating: number | null;
-  feedback_notes: string | null;
+  notes: string | null;       // feedback notes (consistent with meal_feedback_set response)
   tags: string | null;
   meal_snapshot: string | null;
 }
@@ -400,9 +402,13 @@ export async function searchMeals(
   // 2. Fetch all their feedback in a single IN query
   // 3. Match and filter in application code so feedback notes are also searchable
 
+  // Limit the initial fetch to avoid hitting SQLite's bind-parameter cap (999)
+  // when building the follow-up IN clause. 500 covers ~1.5 years of daily meals.
   const mealRows = (
     await db
-      .prepare("SELECT date, name, ingredients, steps FROM meal_entries WHERE household_id = ? ORDER BY date DESC")
+      .prepare(
+        "SELECT date, name, ingredients, steps FROM meal_entries WHERE household_id = ? ORDER BY date DESC LIMIT 500",
+      )
       .bind(householdId)
       .all<{ date: string; name: string; ingredients: string | null; steps: string | null }>()
   ).results;
@@ -419,31 +425,32 @@ export async function searchMeals(
       .all<MealFeedback>()
   ).results;
 
-  // Group feedback by date — first entry per date is most recently updated
+  // Group all feedback rows by date
   const feedbackByDate = new Map<string, MealFeedback[]>();
   for (const fb of feedbackRows) {
-    const existing = feedbackByDate.get(fb.date) ?? [];
-    existing.push(fb);
-    feedbackByDate.set(fb.date, existing);
+    const list = feedbackByDate.get(fb.date) ?? [];
+    list.push(fb);
+    feedbackByDate.set(fb.date, list);
   }
 
   const queryLower = opts.query?.toLowerCase();
   const results: MealSearchRow[] = [];
 
   for (const meal of mealRows) {
-    const feedbacks = feedbackByDate.get(meal.date) ?? [];
-    // Prefer feedback whose snapshot name matches the current meal; fall back to most recent
-    const fb =
-      feedbacks.find((f) => {
-        try {
-          return f.meal_snapshot !== null &&
-            (JSON.parse(f.meal_snapshot) as { name: string }).name === meal.name;
-        } catch {
-          return false;
-        }
-      }) ?? feedbacks[0] ?? null;
+    // Build the canonical snapshot string for this meal row (same method as upsertMealFeedback)
+    const currentSnapshotJson = JSON.stringify({
+      name: meal.name,
+      ingredients: meal.ingredients,
+      steps: meal.steps,
+    });
 
-    // Text filter across meal name, ingredients JSON, and feedback notes
+    // Only match feedback whose snapshot equals the current meal exactly.
+    // No fallback: stale feedback from a prior meal version is not shown.
+    const fb = (feedbackByDate.get(meal.date) ?? []).find(
+      (f) => f.meal_snapshot === currentSnapshotJson,
+    ) ?? null;
+
+    // Text search covers meal name, ingredients JSON, and matching feedback notes
     if (queryLower) {
       const nameMatch = meal.name.toLowerCase().includes(queryLower);
       const ingMatch = meal.ingredients?.toLowerCase().includes(queryLower) ?? false;
@@ -451,7 +458,7 @@ export async function searchMeals(
       if (!nameMatch && !ingMatch && !notesMatch) continue;
     }
 
-    // Rating filters require feedback to exist with a rating
+    // Rating and tag filters require matching feedback with a value
     if (opts.minRating !== undefined && (fb?.rating ?? null) === null) continue;
     if (opts.minRating !== undefined && fb!.rating! < opts.minRating) continue;
     if (opts.maxRating !== undefined && (fb?.rating ?? null) === null) continue;
@@ -472,7 +479,7 @@ export async function searchMeals(
       ingredients: meal.ingredients,
       steps: meal.steps,
       rating: fb?.rating ?? null,
-      feedback_notes: fb?.notes ?? null,
+      notes: fb?.notes ?? null,
       tags: fb?.tags ?? null,
       meal_snapshot: fb?.meal_snapshot ?? null,
     });

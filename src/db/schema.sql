@@ -47,7 +47,7 @@ CREATE TABLE preferences (
 
 CREATE TABLE preference_history (
   id TEXT PRIMARY KEY,
-  household_id TEXT NOT NULL,
+  household_id TEXT NOT NULL REFERENCES households(id),
   preference_key TEXT NOT NULL,
   old_value TEXT,
   new_value TEXT,
@@ -58,13 +58,13 @@ CREATE TABLE meal_feedback (
   id TEXT PRIMARY KEY,
   household_id TEXT NOT NULL REFERENCES households(id),
   date TEXT NOT NULL,
-  rating INTEGER,    -- 1-5, nullable
+  rating INTEGER,      -- 1-5, nullable
   notes TEXT,
-  tags TEXT,          -- JSON: string[]
-  meal_snapshot TEXT, -- JSON snapshot of meal_entries row at feedback creation time
+  tags TEXT,           -- JSON: string[]
+  meal_snapshot TEXT,  -- JSON snapshot of meal_entries row at feedback creation time
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-  -- No UNIQUE(household_id, date): one row per meal version on that date
+  -- uniqueness enforced by idx_meal_feedback_unique (expression index with ifnull)
 );
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
@@ -73,3 +73,4 @@ CREATE INDEX idx_preferences_household ON preferences(household_id);
 CREATE INDEX idx_preference_history_household ON preference_history(household_id, preference_key);
 CREATE INDEX idx_meal_feedback_household ON meal_feedback(household_id);
 CREATE INDEX idx_meal_feedback_date ON meal_feedback(household_id, date);
+CREATE UNIQUE INDEX idx_meal_feedback_unique ON meal_feedback(household_id, date, ifnull(meal_snapshot, ''));

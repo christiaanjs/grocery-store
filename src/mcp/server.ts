@@ -1,4 +1,4 @@
-import type { Env, McpRequest, McpResponse } from "../types.ts";
+import type { Env, McpRequest, McpResponse, ToolResult } from "../types.ts";
 import { getOrCreateHousehold } from "../db/queries.ts";
 import { FEEDBACK_TOOLS, handleFeedbackTool } from "./tools/feedback.ts";
 import { MEAL_TOOLS, handleMealTool } from "./tools/meals.ts";
@@ -80,7 +80,7 @@ async function dispatch(req: McpRequest, env: Env, userId: string): Promise<McpR
         return { jsonrpc: "2.0", id, error: { code: -32601, message: `Unknown tool: ${params.name}` } };
       }
 
-      let toolResult;
+      let toolResult: ToolResult;
       if (isPantryTool) {
         toolResult = await handlePantryTool(params.name, args, env.DB, householdId);
       } else if (isMealTool) {

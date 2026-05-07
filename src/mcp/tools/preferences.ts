@@ -104,7 +104,7 @@ export async function handlePreferenceTool(
       if (typeof args["value"] !== "string" || args["value"].trim() === "") {
         return { content: [{ type: "text", text: "value is required and must be a non-empty string" }], isError: true };
       }
-      const notes = typeof args["notes"] === "string" ? args["notes"] : null;
+      const notes = typeof args["notes"] === "string" ? args["notes"] : undefined;
       const pref = await setPreference(db, householdId, args["key"], args["value"], notes);
       return { content: [{ type: "text", text: JSON.stringify(pref, null, 2) }] };
     }

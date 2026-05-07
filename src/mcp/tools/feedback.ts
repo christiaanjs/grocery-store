@@ -5,7 +5,7 @@ export const FEEDBACK_TOOLS: ToolDefinition[] = [
   {
     name: "meal_feedback_set",
     description:
-      "Add or update feedback and a rating for a meal on a specific date. At least one of rating, notes, or tags must be provided. Upserts — calling again for the same date replaces existing feedback.",
+      "Add or update feedback and a rating for a meal on a specific date. At least one of rating, notes, or tags must be provided. Matches on the current meal entry: if the meal has changed since the last feedback a new record is created; otherwise the existing one is updated.",
     inputSchema: {
       type: "object",
       properties: {
@@ -136,10 +136,15 @@ export async function handleFeedbackTool(
         const result: Record<string, unknown> = { date: row.date, name: row.name };
         if (row.ingredients) result["ingredients"] = JSON.parse(row.ingredients) as MealIngredient[];
         if (row.steps) result["steps"] = JSON.parse(row.steps) as string[];
-        if (row.rating !== null) result["rating"] = row.rating;
-        if (row.feedback_notes) result["feedback_notes"] = row.feedback_notes;
-        if (row.tags) result["tags"] = JSON.parse(row.tags) as string[];
-        if (row.meal_snapshot) result["meal_snapshot"] = JSON.parse(row.meal_snapshot);
+        // Nest all feedback fields under a single key for a consistent API shape
+        if (row.rating !== null || row.notes || row.tags || row.meal_snapshot) {
+          const feedback: Record<string, unknown> = {};
+          if (row.rating !== null) feedback["rating"] = row.rating;
+          if (row.notes) feedback["notes"] = row.notes;
+          if (row.tags) feedback["tags"] = JSON.parse(row.tags) as string[];
+          if (row.meal_snapshot) feedback["meal_snapshot"] = JSON.parse(row.meal_snapshot);
+          result["feedback"] = feedback;
+        }
         return result;
       });
       return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };

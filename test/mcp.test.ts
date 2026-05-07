@@ -392,16 +392,16 @@ describe("meal feedback and search", () => {
 
   it("filters by minimum rating", async () => {
     const text = await resultText(65, "meal_search", { min_rating: 5 });
-    const results = JSON.parse(text) as Array<{ rating: number }>;
+    const results = JSON.parse(text) as Array<{ feedback?: { rating: number } }>;
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.every((r) => r.rating >= 5)).toBe(true);
+    expect(results.every((r) => (r.feedback?.rating ?? 0) >= 5)).toBe(true);
   });
 
   it("filters by tag", async () => {
     const text = await resultText(66, "meal_search", { tag: "would_repeat" });
-    const results = JSON.parse(text) as Array<{ tags: string[] }>;
+    const results = JSON.parse(text) as Array<{ feedback?: { tags: string[] } }>;
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.every((r) => r.tags.includes("would_repeat"))).toBe(true);
+    expect(results.every((r) => r.feedback?.tags.includes("would_repeat"))).toBe(true);
   });
 
   it("searches by ingredient keyword", async () => {
@@ -469,11 +469,11 @@ describe("meal feedback and search", () => {
   it("meal_search returns feedback matching the current meal", async () => {
     // Search for "risotto" — should find MON with the risotto feedback
     const text = await resultText(604, "meal_search", { query: "risotto" });
-    const results = JSON.parse(text) as Array<Record<string, unknown>>;
-    const mon = results.find((r) => r["date"] === MON);
+    const results = JSON.parse(text) as Array<{ date: string; feedback?: { rating: number; meal_snapshot: { name: string } } }>;
+    const mon = results.find((r) => r.date === MON);
     expect(mon).toBeDefined();
-    expect((mon!["meal_snapshot"] as Record<string, unknown>)["name"]).toBe("risotto");
-    // Original pasta feedback is a separate record — not shown for risotto meal
-    expect(mon!["rating"]).toBe(5);
+    // Feedback is nested; snapshot must reflect the risotto version, not the old pasta one
+    expect(mon!.feedback?.meal_snapshot.name).toBe("risotto");
+    expect(mon!.feedback?.rating).toBe(5);
   });
 });
