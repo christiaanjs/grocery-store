@@ -17,9 +17,11 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
     const authHeader = request.headers.get("Authorization");
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
-      const payload = await verifyJwt(token, env.JWT_SECRET);
-      if (payload) {
-        return { userId: payload.sub };
+      try {
+        const payload = await verifyJwt(token, env.JWT_SECRET);
+        if (payload) return { userId: payload.sub };
+      } catch {
+        // treat any crypto error as an invalid token
       }
     }
   }

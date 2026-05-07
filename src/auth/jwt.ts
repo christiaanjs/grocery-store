@@ -1,5 +1,5 @@
-export const ACCESS_TOKEN_TTL = 3600; // 1 hour
-export const REFRESH_TOKEN_TTL = 30 * 24 * 3600; // 30 days
+export const ACCESS_TOKEN_TTL = 3600; // 1 hour in seconds
+export const REFRESH_TOKEN_TTL = 30 * 24 * 3600; // 30 days in seconds
 
 export interface JwtPayload {
   sub: string;
@@ -22,7 +22,9 @@ function base64urlEncodeStr(str: string): string {
 }
 
 function base64urlDecode(str: string): Uint8Array {
-  const padded = str.replace(/-/g, "+").replace(/_/g, "/");
+  // Restore standard base64 padding before decoding
+  const padding = (4 - (str.length % 4)) % 4;
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padding);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -54,20 +56,34 @@ export async function verifyJwt(token: string, secret: string): Promise<JwtPaylo
   const headerB64 = parts[0]!;
   const payloadB64 = parts[1]!;
   const sigB64 = parts[2]!;
-  const key = await hmacKey(secret);
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    base64urlDecode(sigB64),
-    new TextEncoder().encode(`${headerB64}.${payloadB64}`),
-  );
-  if (!valid) return null;
   try {
+    const key = await hmacKey(secret);
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      base64urlDecode(sigB64),
+      new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+    );
+    if (!valid) return null;
+
     const payload = JSON.parse(
       new TextDecoder().decode(base64urlDecode(payloadB64)),
-    ) as JwtPayload;
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return payload;
+    ) as unknown;
+
+    // Validate required claims are present with correct types
+    if (
+      typeof payload !== "object" ||
+      payload === null ||
+      typeof (payload as Record<string, unknown>)["sub"] !== "string" ||
+      typeof (payload as Record<string, unknown>)["exp"] !== "number" ||
+      (payload as Record<string, unknown>)["aud"] !== "mcp"
+    ) {
+      return null;
+    }
+
+    const p = payload as JwtPayload;
+    if (p.exp < Math.floor(Date.now() / 1000)) return null;
+    return p;
   } catch {
     return null;
   }

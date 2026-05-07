@@ -1,47 +1,22 @@
 import type { Env } from "../types.ts";
-import {
-  signJwt,
-  verifyPkce,
-  hashToken,
-  ACCESS_TOKEN_TTL,
-  REFRESH_TOKEN_TTL,
-  type JwtPayload,
-} from "./jwt.ts";
+import { signJwt, verifyPkce, hashToken, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, type JwtPayload } from "./jwt.ts";
 import { getUser, createUserWithHousehold } from "../db/queries.ts";
+import {
+  getOAuthClient,
+  insertOAuthClient,
+  insertOAuthState,
+  getAndDeleteOAuthState,
+  insertOAuthCode,
+  claimOAuthCode,
+  insertRefreshToken,
+  claimRefreshToken,
+  type OAuthCodeRow,
+} from "../db/oauth.ts";
 
 interface GitHubUser {
   id: number;
   login: string;
   email: string | null;
-}
-
-interface OAuthStateRow {
-  state: string;
-  client_id: string;
-  code_challenge: string;
-  code_challenge_method: string;
-  redirect_uri: string;
-  original_state: string | null;
-  expires_at: number;
-}
-
-interface OAuthCodeRow {
-  code: string;
-  client_id: string;
-  user_id: string;
-  code_challenge: string;
-  code_challenge_method: string;
-  redirect_uri: string;
-  expires_at: number;
-  used: number;
-}
-
-interface OAuthRefreshTokenRow {
-  token_hash: string;
-  user_id: string;
-  client_id: string;
-  expires_at: number;
-  revoked: number;
 }
 
 function issuerFromRequest(request: Request): string {
@@ -60,6 +35,16 @@ function oauthError(error: string, description: string, status = 400): Response 
   return jsonResponse({ error, error_description: description }, status);
 }
 
+function isValidRedirectUri(uri: unknown): uri is string {
+  if (typeof uri !== "string") return false;
+  try {
+    const parsed = new URL(uri);
+    return parsed.hash === ""; // fragments not allowed
+  } catch {
+    return false;
+  }
+}
+
 // GET /.well-known/oauth-authorization-server
 export function handleMetadata(request: Request): Response {
   const issuer = issuerFromRequest(request);
@@ -71,11 +56,12 @@ export function handleMetadata(request: Request): Response {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["client_secret_basic", "none"],
+    token_endpoint_auth_methods_supported: ["none"],
   });
 }
 
 // POST /register — Dynamic Client Registration (RFC 7591)
+// Claude.ai is a public client using PKCE; no client_secret is issued.
 export async function handleRegister(request: Request, env: Env): Promise<Response> {
   let body: Record<string, unknown>;
   try {
@@ -88,26 +74,24 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   if (!Array.isArray(redirectUris) || redirectUris.length === 0) {
     return oauthError("invalid_redirect_uri", "redirect_uris is required and must be non-empty");
   }
+  if (!redirectUris.every(isValidRedirectUri)) {
+    return oauthError(
+      "invalid_redirect_uri",
+      "Each redirect_uri must be a valid URL without a fragment",
+    );
+  }
 
   const clientId = crypto.randomUUID();
-  const clientSecret = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
-  const secretHash = await hashToken(clientSecret);
   const now = Date.now();
-
-  await env.DB.prepare(
-    "INSERT INTO oauth_clients (client_id, client_secret_hash, redirect_uris, created_at) VALUES (?, ?, ?, ?)",
-  )
-    .bind(clientId, secretHash, JSON.stringify(redirectUris), now)
-    .run();
+  await insertOAuthClient(env.DB, clientId, redirectUris as string[], now);
 
   return jsonResponse(
     {
       client_id: clientId,
-      client_secret: clientSecret,
       redirect_uris: redirectUris,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: "client_secret_basic",
+      token_endpoint_auth_method: "none",
     },
     201,
   );
@@ -115,8 +99,11 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
 
 // GET /authorize
 export async function handleAuthorize(request: Request, env: Env): Promise<Response> {
-  const params = new URL(request.url).searchParams;
+  if (!env.GITHUB_CLIENT_ID) {
+    return new Response("Server misconfiguration: GITHUB_CLIENT_ID not set", { status: 500 });
+  }
 
+  const params = new URL(request.url).searchParams;
   const clientId = params.get("client_id");
   const redirectUri = params.get("redirect_uri");
   const responseType = params.get("response_type");
@@ -134,35 +121,35 @@ export async function handleAuthorize(request: Request, env: Env): Promise<Respo
     return oauthError("invalid_request", "Only S256 code_challenge_method is supported");
   }
 
-  const client = await env.DB.prepare(
-    "SELECT client_id, redirect_uris FROM oauth_clients WHERE client_id = ?",
-  )
-    .bind(clientId)
-    .first<{ client_id: string; redirect_uris: string }>();
-
+  const client = await getOAuthClient(env.DB, clientId);
   if (!client) {
     return oauthError("invalid_client", "Unknown client_id", 401);
   }
-  const allowedUris = JSON.parse(client.redirect_uris) as string[];
+
+  let allowedUris: string[];
+  try {
+    allowedUris = JSON.parse(client.redirect_uris) as string[];
+  } catch {
+    return oauthError("server_error", "Stored client configuration is invalid", 500);
+  }
   if (!allowedUris.includes(redirectUri)) {
     return oauthError("invalid_redirect_uri", "redirect_uri not registered for this client");
   }
 
   const internalState = crypto.randomUUID();
-  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 min
-
-  await env.DB.prepare(
-    "INSERT INTO oauth_states (state, client_id, code_challenge, code_challenge_method, redirect_uri, original_state, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(internalState, clientId, codeChallenge, codeChallengeMethod, redirectUri, state, expiresAt)
-    .run();
+  await insertOAuthState(env.DB, {
+    state: internalState,
+    client_id: clientId,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
+    redirect_uri: redirectUri,
+    original_state: state,
+    expires_at: Date.now() + 10 * 60 * 1000, // 10 min in ms
+  });
 
   const githubUrl = new URL("https://github.com/login/oauth/authorize");
   githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
-  githubUrl.searchParams.set(
-    "redirect_uri",
-    `${issuerFromRequest(request)}/oauth/callback`,
-  );
+  githubUrl.searchParams.set("redirect_uri", `${issuerFromRequest(request)}/oauth/callback`);
   githubUrl.searchParams.set("scope", "user:email");
   githubUrl.searchParams.set("state", internalState);
 
@@ -179,12 +166,7 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
     return new Response("Missing code or state", { status: 400 });
   }
 
-  const pending = await env.DB.prepare("SELECT * FROM oauth_states WHERE state = ?")
-    .bind(state)
-    .first<OAuthStateRow>();
-
-  await env.DB.prepare("DELETE FROM oauth_states WHERE state = ?").bind(state).run();
-
+  const pending = await getAndDeleteOAuthState(env.DB, state);
   if (!pending || pending.expires_at < Date.now()) {
     return new Response("Invalid or expired state", { status: 400 });
   }
@@ -233,21 +215,16 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
 
   // Issue MCP auth code
   const authCode = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
-  const codeExpiresAt = Date.now() + 5 * 60 * 1000; // 5 min
-
-  await env.DB.prepare(
-    "INSERT INTO oauth_codes (code, client_id, user_id, code_challenge, code_challenge_method, redirect_uri, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(
-      authCode,
-      pending.client_id,
-      userId,
-      pending.code_challenge,
-      pending.code_challenge_method,
-      pending.redirect_uri,
-      codeExpiresAt,
-    )
-    .run();
+  await insertOAuthCode(env.DB, {
+    code: authCode,
+    client_id: pending.client_id,
+    user_id: userId,
+    code_challenge: pending.code_challenge,
+    code_challenge_method: pending.code_challenge_method,
+    redirect_uri: pending.redirect_uri,
+    expires_at: Date.now() + 5 * 60 * 1000, // 5 min in ms
+    used: 0,
+  });
 
   const callbackUrl = new URL("https://claude.ai/api/mcp/auth_callback");
   callbackUrl.searchParams.set("code", authCode);
@@ -283,21 +260,29 @@ async function handleAuthCodeGrant(
   params: URLSearchParams,
   env: Env,
 ): Promise<Response> {
+  if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
+    return new Response("Server misconfiguration: JWT_SECRET too short", { status: 500 });
+  }
+
   const code = params.get("code");
   const redirectUri = params.get("redirect_uri");
   const codeVerifier = params.get("code_verifier");
-  const clientId = params.get("client_id") ?? extractClientIdFromAuth(request);
+  const clientId = params.get("client_id");
 
   if (!code || !redirectUri || !codeVerifier || !clientId) {
     return oauthError("invalid_request", "Missing required parameters");
   }
 
-  const authCode = await env.DB.prepare("SELECT * FROM oauth_codes WHERE code = ?")
-    .bind(code)
-    .first<OAuthCodeRow>();
+  // Verify client exists
+  const client = await getOAuthClient(env.DB, clientId);
+  if (!client) {
+    return oauthError("invalid_client", "Unknown client_id", 401);
+  }
 
-  if (!authCode || authCode.used || authCode.expires_at < Date.now()) {
-    return oauthError("invalid_grant", "Authorization code is invalid or expired");
+  // Atomically claim the auth code — prevents double-redemption
+  const authCode = await claimOAuthCode(env.DB, code, Date.now());
+  if (!authCode) {
+    return oauthError("invalid_grant", "Authorization code is invalid, expired, or already used");
   }
   if (authCode.client_id !== clientId) {
     return oauthError("invalid_grant", "client_id mismatch");
@@ -315,20 +300,64 @@ async function handleAuthCodeGrant(
     return oauthError("invalid_grant", "PKCE verification failed");
   }
 
-  await env.DB.prepare("UPDATE oauth_codes SET used = 1 WHERE code = ?").bind(code).run();
+  return issueTokens(request, env, authCode.user_id, clientId);
+}
 
-  const { payload, ttl } = makeAccessPayload(authCode.user_id, issuerFromRequest(request));
+async function handleRefreshGrant(
+  request: Request,
+  params: URLSearchParams,
+  env: Env,
+): Promise<Response> {
+  if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
+    return new Response("Server misconfiguration: JWT_SECRET too short", { status: 500 });
+  }
+
+  const refreshToken = params.get("refresh_token");
+  const clientId = params.get("client_id");
+
+  if (!refreshToken || !clientId) {
+    return oauthError("invalid_request", "Missing required parameters");
+  }
+
+  // Verify client exists
+  const client = await getOAuthClient(env.DB, clientId);
+  if (!client) {
+    return oauthError("invalid_client", "Unknown client_id", 401);
+  }
+
+  const tokenHash = await hashToken(refreshToken);
+
+  // Atomically revoke the old token — prevents concurrent rotation races
+  const stored = await claimRefreshToken(env.DB, tokenHash, Date.now());
+  if (!stored) {
+    return oauthError("invalid_grant", "Refresh token is invalid, expired, or already used");
+  }
+  if (stored.client_id !== clientId) {
+    return oauthError("invalid_grant", "client_id mismatch");
+  }
+
+  return issueTokens(request, env, stored.user_id, clientId);
+}
+
+async function issueTokens(
+  request: Request,
+  env: Env,
+  userId: string,
+  clientId: string,
+): Promise<Response> {
+  const { payload, ttl } = makeAccessPayload(userId, issuerFromRequest(request));
   const accessToken = await signJwt(payload, env.JWT_SECRET);
 
   const refreshToken = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
   const refreshHash = await hashToken(refreshToken);
-  const refreshExpiresAt = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL;
 
-  await env.DB.prepare(
-    "INSERT INTO oauth_refresh_tokens (token_hash, user_id, client_id, expires_at) VALUES (?, ?, ?, ?)",
-  )
-    .bind(refreshHash, authCode.user_id, clientId, refreshExpiresAt)
-    .run();
+  await insertRefreshToken(env.DB, {
+    token_hash: refreshHash,
+    user_id: userId,
+    client_id: clientId,
+    expires_at: Date.now() + REFRESH_TOKEN_TTL * 1000, // convert seconds to ms
+    revoked: 0,
+  });
 
   return jsonResponse({
     access_token: accessToken,
@@ -338,64 +367,7 @@ async function handleAuthCodeGrant(
   });
 }
 
-async function handleRefreshGrant(
-  request: Request,
-  params: URLSearchParams,
-  env: Env,
-): Promise<Response> {
-  const refreshToken = params.get("refresh_token");
-  const clientId = params.get("client_id") ?? extractClientIdFromAuth(request);
-
-  if (!refreshToken || !clientId) {
-    return oauthError("invalid_request", "Missing required parameters");
-  }
-
-  const tokenHash = await hashToken(refreshToken);
-  const stored = await env.DB.prepare(
-    "SELECT * FROM oauth_refresh_tokens WHERE token_hash = ?",
-  )
-    .bind(tokenHash)
-    .first<OAuthRefreshTokenRow>();
-
-  if (!stored || stored.revoked || stored.expires_at < Math.floor(Date.now() / 1000)) {
-    return oauthError("invalid_grant", "Refresh token is invalid or expired");
-  }
-  if (stored.client_id !== clientId) {
-    return oauthError("invalid_grant", "client_id mismatch");
-  }
-
-  // Rotate refresh token
-  await env.DB.prepare(
-    "UPDATE oauth_refresh_tokens SET revoked = 1 WHERE token_hash = ?",
-  )
-    .bind(tokenHash)
-    .run();
-
-  const newRefreshToken = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, "");
-  const newRefreshHash = await hashToken(newRefreshToken);
-  const newRefreshExpiresAt = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_TTL;
-
-  await env.DB.prepare(
-    "INSERT INTO oauth_refresh_tokens (token_hash, user_id, client_id, expires_at) VALUES (?, ?, ?, ?)",
-  )
-    .bind(newRefreshHash, stored.user_id, clientId, newRefreshExpiresAt)
-    .run();
-
-  const { payload, ttl } = makeAccessPayload(stored.user_id, issuerFromRequest(request));
-  const accessToken = await signJwt(payload, env.JWT_SECRET);
-
-  return jsonResponse({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: ttl,
-    refresh_token: newRefreshToken,
-  });
-}
-
-function makeAccessPayload(
-  userId: string,
-  issuer: string,
-): { payload: JwtPayload; ttl: number } {
+function makeAccessPayload(userId: string, issuer: string): { payload: JwtPayload; ttl: number } {
   const now = Math.floor(Date.now() / 1000);
   return {
     payload: {
@@ -408,16 +380,4 @@ function makeAccessPayload(
     },
     ttl: ACCESS_TOKEN_TTL,
   };
-}
-
-function extractClientIdFromAuth(request: Request): string | null {
-  const auth = request.headers.get("Authorization");
-  if (!auth?.startsWith("Basic ")) return null;
-  try {
-    const decoded = atob(auth.slice(6));
-    const colonIdx = decoded.indexOf(":");
-    return colonIdx > 0 ? decoded.slice(0, colonIdx) : null;
-  } catch {
-    return null;
-  }
 }

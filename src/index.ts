@@ -14,12 +14,10 @@ export default {
     const url = new URL(request.url);
     const { method, pathname } = { method: request.method, pathname: url.pathname };
 
-    // OAuth 2.1 endpoints (always serve metadata; others only when ENABLE_OAUTH=true)
-    if (method === "GET" && pathname === "/.well-known/oauth-authorization-server") {
-      return handleMetadata(request);
-    }
-
     if (env.ENABLE_OAUTH === "true") {
+      if (method === "GET" && pathname === "/.well-known/oauth-authorization-server") {
+        return handleMetadata(request);
+      }
       if (method === "POST" && pathname === "/register") {
         return handleRegister(request, env);
       }
