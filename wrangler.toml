@@ -16,3 +16,24 @@ ENABLE_OAUTH = "false"
 # GITHUB_CLIENT_ID
 # GITHUB_CLIENT_SECRET
 # JWT_SECRET
+
+# ── Staging environment ───────────────────────────────────────────────────
+# Worker URL: https://grocery-store-staging.grocery-store.workers.dev
+# GitHub OAuth App callback: https://grocery-store-staging.grocery-store.workers.dev/oauth/callback
+[env.staging]
+name = "grocery-store-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "grocery-store-db-staging"
+database_id = "REPLACE_WITH_STAGING_DB_ID"  # wrangler d1 create grocery-store-db-staging
+
+[env.staging.vars]
+ENABLE_OAUTH = "true"
+
+# Secrets for staging (set via: wrangler secret put <NAME> --env staging)
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+# JWT_SECRET
+# DEV_TOKEN
+# DEV_USER_ID

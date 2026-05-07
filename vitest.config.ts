@@ -13,6 +13,11 @@ export default defineConfig(async () => {
           bindings: {
             DEV_TOKEN: "test-token",
             DEV_USER_ID: "usr_test",
+            // Enable OAuth and provide secrets for the test environment
+            ENABLE_OAUTH: "true",
+            JWT_SECRET: "test-jwt-secret-for-vitest-at-least-32-chars",
+            GITHUB_CLIENT_ID: "test-github-client-id",
+            GITHUB_CLIENT_SECRET: "test-github-client-secret",
             TEST_MIGRATIONS: migrations,
           },
         },
