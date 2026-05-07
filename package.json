@@ -13,7 +13,6 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
     "migrate:local": "wrangler d1 migrations apply grocery-store-db --local",
-    "migrate:prod": "wrangler d1 migrations apply grocery-store-db --remote",
     "migration:new": "wrangler d1 migrations create grocery-store-db",
     "logs": "wrangler tail"
   },
