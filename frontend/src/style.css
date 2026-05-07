@@ -1,0 +1,381 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  background: #f9fafb;
+}
+
+button {
+  cursor: pointer;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.app-header {
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  height: 52px;
+}
+
+.app-header h1 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: #111;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tab-bar button {
+  padding: 0.35rem 0.9rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.tab-bar button.active {
+  background: #f3f4f6;
+  color: #111;
+  font-weight: 500;
+}
+
+.spacer { flex: 1; }
+
+.sign-out-btn {
+  padding: 0.3rem 0.8rem;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.app-main {
+  padding: 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ── Login screen ────────────────────────────────────────────────────────── */
+
+.login-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  gap: 1rem;
+}
+
+.login-screen h2 { font-size: 1.25rem; margin: 0; }
+
+.login-btn {
+  padding: 0.6rem 1.5rem;
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.error-banner {
+  padding: 0.75rem 1rem;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #b91c1c;
+  font-size: 0.875rem;
+  max-width: 400px;
+  text-align: center;
+}
+
+/* ── Pantry view ────────────────────────────────────────────────────────── */
+
+.pantry-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.pantry-toolbar input[type="text"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.filter-btn {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.filter-btn.active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.add-item-btn {
+  padding: 0.4rem 1rem;
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.pantry-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+
+.pantry-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  background: #f9fafb;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.pantry-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+
+.pantry-table tr:last-child td { border-bottom: none; }
+
+.pantry-table tr.out-of-stock td { color: #9ca3af; }
+
+.stock-toggle {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+}
+
+.stock-toggle:checked {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+.category-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: #f3f4f6;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.edit-row input {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.row-actions button {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+.row-actions .save-btn {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.bulk-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mark-out-btn {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+/* ── Meal plan view ─────────────────────────────────────────────────────── */
+
+.meal-plan-view {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  padding: 1rem;
+}
+
+/* FullCalendar overrides */
+.fc-event {
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.fc-daygrid-event {
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.5rem;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+
+.modal h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.modal label {
+  display: block;
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.modal input[type="text"],
+.modal textarea,
+.modal input[type="number"] {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.modal textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.ingredient-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.ingredient-row input { flex: 1; }
+
+.ingredient-row input[type="number"] { flex: 0 0 70px; }
+
+.add-ingredient-btn {
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px dashed #d1d5db;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  width: 100%;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.modal-footer button {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.btn-primary {
+  background: #111;
+  color: #fff;
+  border: none;
+}
+
+.btn-secondary {
+  background: #fff;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+
+.btn-danger {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+}
+
+/* ── Misc ───────────────────────────────────────────────────────────────── */
+
+.loading {
+  color: #9ca3af;
+  padding: 2rem;
+  text-align: center;
+}
+
+.inline-error {
+  font-size: 0.8rem;
+  color: #b91c1c;
+  margin-top: 0.5rem;
+}

@@ -237,7 +237,7 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
     used: 0,
   });
 
-  const callbackUrl = new URL("https://claude.ai/api/mcp/auth_callback");
+  const callbackUrl = new URL(pending.redirect_uri);
   callbackUrl.searchParams.set("code", authCode);
   if (pending.original_state) callbackUrl.searchParams.set("state", pending.original_state);
 

@@ -10,6 +10,7 @@ database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
 
 [vars]
 ENABLE_OAUTH = "true"
+ALLOWED_ORIGIN = "https://grocery-store-frontend.pages.dev"
 
 # Secrets (never put values here — set via: wrangler secret put <NAME>)
 # DEV_TOKEN
@@ -31,6 +32,7 @@ database_id = "9c0fd451-8948-41bd-8c91-9d49cfbfee5a"
 
 [env.staging.vars]
 ENABLE_OAUTH = "true"
+ALLOWED_ORIGIN = "https://grocery-store-frontend-staging.pages.dev"
 
 # Secrets for staging (set via: wrangler secret put <NAME> --env staging)
 # GITHUB_CLIENT_ID
