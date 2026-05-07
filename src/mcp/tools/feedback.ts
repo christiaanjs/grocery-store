@@ -95,6 +95,7 @@ export async function handleFeedbackTool(
 
       const saved = await upsertMealFeedback(db, householdId, args["date"], { rating, notes, tags });
       const data: Record<string, unknown> = { date: saved.date };
+      if (saved.meal_snapshot !== null) data["meal_snapshot"] = JSON.parse(saved.meal_snapshot);
       if (saved.rating !== null) data["rating"] = saved.rating;
       if (saved.notes !== null) data["notes"] = saved.notes;
       if (saved.tags !== null) data["tags"] = JSON.parse(saved.tags) as string[];
@@ -130,6 +131,7 @@ export async function handleFeedbackTool(
         if (row.rating !== null) result["rating"] = row.rating;
         if (row.feedback_notes) result["feedback_notes"] = row.feedback_notes;
         if (row.tags) result["tags"] = JSON.parse(row.tags) as string[];
+        if (row.meal_snapshot) result["meal_snapshot"] = JSON.parse(row.meal_snapshot);
         return result;
       });
       return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };

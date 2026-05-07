@@ -343,7 +343,7 @@ describe("meal feedback and search", () => {
   const TUE = "2026-05-05";
   const WED = "2026-05-06";
 
-  it("adds feedback to a meal", async () => {
+  it("adds feedback to a meal and snapshots the meal entry", async () => {
     const text = await resultText(60, "meal_feedback_set", {
       date: MON,
       rating: 4,
@@ -354,6 +354,8 @@ describe("meal feedback and search", () => {
     expect(data["date"]).toBe(MON);
     expect(data["rating"]).toBe(4);
     expect(data["tags"]).toContain("family_favorite");
+    const snapshot = data["meal_snapshot"] as Record<string, unknown>;
+    expect(snapshot["name"]).toBe("updated pasta");
   });
 
   it("adds feedback to a second meal", async () => {
@@ -427,5 +429,20 @@ describe("meal feedback and search", () => {
   it("returns error when meal_search has no filters", async () => {
     const res = await call(71, "meal_search", {});
     expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("snapshot is preserved after the meal is edited", async () => {
+    // Replace MON's meal with something entirely different
+    await resultText(601, "meal_plan_set", {
+      meals: [{ date: MON, name: "risotto" }],
+    });
+    // Update feedback (amend notes only) — snapshot must NOT change
+    const text = await resultText(602, "meal_feedback_set", {
+      date: MON,
+      notes: "Still remember the pasta fondly",
+    });
+    const data = JSON.parse(text) as Record<string, unknown>;
+    const snapshot = data["meal_snapshot"] as Record<string, unknown>;
+    expect(snapshot["name"]).toBe("updated pasta");
   });
 });

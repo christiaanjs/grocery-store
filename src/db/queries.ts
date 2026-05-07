@@ -324,6 +324,7 @@ export async function upsertMealFeedback(
     .first<MealFeedback>();
 
   if (existing) {
+    // Never overwrite meal_snapshot — it captures what was actually eaten
     await db
       .prepare(
         "UPDATE meal_feedback SET rating = ?, notes = ?, tags = ?, updated_at = ? WHERE id = ?",
@@ -343,12 +344,19 @@ export async function upsertMealFeedback(
     return updated!;
   }
 
+  // Snapshot the meal entry at creation time so feedback stays valid after edits
+  const mealEntry = await db
+    .prepare("SELECT name, ingredients, steps FROM meal_entries WHERE household_id = ? AND date = ?")
+    .bind(householdId, date)
+    .first<{ name: string; ingredients: string | null; steps: string | null }>();
+  const mealSnapshot = mealEntry ? JSON.stringify(mealEntry) : null;
+
   const id = crypto.randomUUID();
   await db
     .prepare(
-      "INSERT INTO meal_feedback (id, household_id, date, rating, notes, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO meal_feedback (id, household_id, date, rating, notes, tags, meal_snapshot, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id, householdId, date, feedback.rating ?? null, feedback.notes ?? null, tagsJson ?? null, now, now)
+    .bind(id, householdId, date, feedback.rating ?? null, feedback.notes ?? null, tagsJson ?? null, mealSnapshot, now, now)
     .run();
 
   return {
@@ -358,6 +366,7 @@ export async function upsertMealFeedback(
     rating: feedback.rating ?? null,
     notes: feedback.notes ?? null,
     tags: tagsJson ?? null,
+    meal_snapshot: mealSnapshot,
     created_at: now,
     updated_at: now,
   };
@@ -371,6 +380,7 @@ export interface MealSearchRow {
   rating: number | null;
   feedback_notes: string | null;
   tags: string | null;
+  meal_snapshot: string | null;
 }
 
 export async function searchMeals(
@@ -380,7 +390,7 @@ export async function searchMeals(
 ): Promise<MealSearchRow[]> {
   let sql = `
     SELECT me.date, me.name, me.ingredients, me.steps,
-           mf.rating, mf.notes AS feedback_notes, mf.tags
+           mf.rating, mf.notes AS feedback_notes, mf.tags, mf.meal_snapshot
     FROM meal_entries me
     LEFT JOIN meal_feedback mf ON me.household_id = mf.household_id AND me.date = mf.date
     WHERE me.household_id = ?

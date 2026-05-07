@@ -82,7 +82,8 @@ export interface MealFeedback {
   date: string;
   rating: number | null;
   notes: string | null;
-  tags: string | null;    // JSON-encoded string[]
+  tags: string | null;          // JSON-encoded string[]
+  meal_snapshot: string | null; // JSON snapshot of meal at feedback creation time
   created_at: number;
   updated_at: number;
 }

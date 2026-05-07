@@ -60,7 +60,8 @@ CREATE TABLE meal_feedback (
   date TEXT NOT NULL,
   rating INTEGER,    -- 1-5, nullable
   notes TEXT,
-  tags TEXT,         -- JSON: string[]
+  tags TEXT,          -- JSON: string[]
+  meal_snapshot TEXT, -- JSON snapshot of meal_entries row at feedback creation time
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   UNIQUE(household_id, date)
