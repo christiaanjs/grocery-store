@@ -318,13 +318,26 @@ export async function upsertMealFeedback(
   const now = Date.now();
   const tagsJson = feedback.tags !== undefined ? JSON.stringify(feedback.tags) : undefined;
 
-  const existing = await db
-    .prepare("SELECT * FROM meal_feedback WHERE household_id = ? AND date = ?")
+  // Snapshot the current meal entry to use as the match key
+  const mealEntry = await db
+    .prepare("SELECT name, ingredients, steps FROM meal_entries WHERE household_id = ? AND date = ?")
     .bind(householdId, date)
-    .first<MealFeedback>();
+    .first<{ name: string; ingredients: string | null; steps: string | null }>();
+  const currentSnapshot = mealEntry ? JSON.stringify(mealEntry) : null;
+
+  // Find existing feedback whose snapshot matches the current meal (same meal = edit, different = new record)
+  const existing = currentSnapshot !== null
+    ? await db
+        .prepare("SELECT * FROM meal_feedback WHERE household_id = ? AND date = ? AND meal_snapshot = ?")
+        .bind(householdId, date, currentSnapshot)
+        .first<MealFeedback>()
+    : await db
+        .prepare("SELECT * FROM meal_feedback WHERE household_id = ? AND date = ? AND meal_snapshot IS NULL")
+        .bind(householdId, date)
+        .first<MealFeedback>();
 
   if (existing) {
-    // Never overwrite meal_snapshot — it captures what was actually eaten
+    // Same meal — update the existing feedback row; snapshot is never overwritten
     await db
       .prepare(
         "UPDATE meal_feedback SET rating = ?, notes = ?, tags = ?, updated_at = ? WHERE id = ?",
@@ -344,19 +357,13 @@ export async function upsertMealFeedback(
     return updated!;
   }
 
-  // Snapshot the meal entry at creation time so feedback stays valid after edits
-  const mealEntry = await db
-    .prepare("SELECT name, ingredients, steps FROM meal_entries WHERE household_id = ? AND date = ?")
-    .bind(householdId, date)
-    .first<{ name: string; ingredients: string | null; steps: string | null }>();
-  const mealSnapshot = mealEntry ? JSON.stringify(mealEntry) : null;
-
+  // Meal has changed (or no existing feedback) — create a new record
   const id = crypto.randomUUID();
   await db
     .prepare(
       "INSERT INTO meal_feedback (id, household_id, date, rating, notes, tags, meal_snapshot, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id, householdId, date, feedback.rating ?? null, feedback.notes ?? null, tagsJson ?? null, mealSnapshot, now, now)
+    .bind(id, householdId, date, feedback.rating ?? null, feedback.notes ?? null, tagsJson ?? null, currentSnapshot, now, now)
     .run();
 
   return {
@@ -366,7 +373,7 @@ export async function upsertMealFeedback(
     rating: feedback.rating ?? null,
     notes: feedback.notes ?? null,
     tags: tagsJson ?? null,
-    meal_snapshot: mealSnapshot,
+    meal_snapshot: currentSnapshot,
     created_at: now,
     updated_at: now,
   };
@@ -388,34 +395,90 @@ export async function searchMeals(
   householdId: string,
   opts: { query?: string; minRating?: number; maxRating?: number; tag?: string },
 ): Promise<MealSearchRow[]> {
-  let sql = `
-    SELECT me.date, me.name, me.ingredients, me.steps,
-           mf.rating, mf.notes AS feedback_notes, mf.tags, mf.meal_snapshot
-    FROM meal_entries me
-    LEFT JOIN meal_feedback mf ON me.household_id = mf.household_id AND me.date = mf.date
-    WHERE me.household_id = ?
-  `;
-  const bindings: unknown[] = [householdId];
+  // Two-query approach to avoid correlated subqueries:
+  // 1. Fetch all meal entries for the household (recent first)
+  // 2. Fetch all their feedback in a single IN query
+  // 3. Match and filter in application code so feedback notes are also searchable
 
-  if (opts.query) {
-    const like = `%${opts.query}%`;
-    sql += " AND (me.name LIKE ? OR me.ingredients LIKE ? OR mf.notes LIKE ?)";
-    bindings.push(like, like, like);
-  }
-  if (opts.minRating !== undefined) {
-    sql += " AND mf.rating >= ?";
-    bindings.push(opts.minRating);
-  }
-  if (opts.maxRating !== undefined) {
-    sql += " AND mf.rating <= ?";
-    bindings.push(opts.maxRating);
-  }
-  if (opts.tag) {
-    sql += ` AND mf.tags LIKE ?`;
-    bindings.push(`%"${opts.tag}"%`);
-  }
-  sql += " ORDER BY me.date DESC LIMIT 50";
+  const mealRows = (
+    await db
+      .prepare("SELECT date, name, ingredients, steps FROM meal_entries WHERE household_id = ? ORDER BY date DESC")
+      .bind(householdId)
+      .all<{ date: string; name: string; ingredients: string | null; steps: string | null }>()
+  ).results;
 
-  const result = await db.prepare(sql).bind(...bindings).all<MealSearchRow>();
-  return result.results;
+  if (mealRows.length === 0) return [];
+
+  const dates = mealRows.map((m) => m.date);
+  const feedbackRows = (
+    await db
+      .prepare(
+        `SELECT * FROM meal_feedback WHERE household_id = ? AND date IN (${dates.map(() => "?").join(", ")}) ORDER BY updated_at DESC`,
+      )
+      .bind(householdId, ...dates)
+      .all<MealFeedback>()
+  ).results;
+
+  // Group feedback by date — first entry per date is most recently updated
+  const feedbackByDate = new Map<string, MealFeedback[]>();
+  for (const fb of feedbackRows) {
+    const existing = feedbackByDate.get(fb.date) ?? [];
+    existing.push(fb);
+    feedbackByDate.set(fb.date, existing);
+  }
+
+  const queryLower = opts.query?.toLowerCase();
+  const results: MealSearchRow[] = [];
+
+  for (const meal of mealRows) {
+    const feedbacks = feedbackByDate.get(meal.date) ?? [];
+    // Prefer feedback whose snapshot name matches the current meal; fall back to most recent
+    const fb =
+      feedbacks.find((f) => {
+        try {
+          return f.meal_snapshot !== null &&
+            (JSON.parse(f.meal_snapshot) as { name: string }).name === meal.name;
+        } catch {
+          return false;
+        }
+      }) ?? feedbacks[0] ?? null;
+
+    // Text filter across meal name, ingredients JSON, and feedback notes
+    if (queryLower) {
+      const nameMatch = meal.name.toLowerCase().includes(queryLower);
+      const ingMatch = meal.ingredients?.toLowerCase().includes(queryLower) ?? false;
+      const notesMatch = fb?.notes?.toLowerCase().includes(queryLower) ?? false;
+      if (!nameMatch && !ingMatch && !notesMatch) continue;
+    }
+
+    // Rating filters require feedback to exist with a rating
+    if (opts.minRating !== undefined && (fb?.rating ?? null) === null) continue;
+    if (opts.minRating !== undefined && fb!.rating! < opts.minRating) continue;
+    if (opts.maxRating !== undefined && (fb?.rating ?? null) === null) continue;
+    if (opts.maxRating !== undefined && fb!.rating! > opts.maxRating) continue;
+
+    if (opts.tag) {
+      if (!fb?.tags) continue;
+      try {
+        if (!(JSON.parse(fb.tags) as string[]).includes(opts.tag)) continue;
+      } catch {
+        continue;
+      }
+    }
+
+    results.push({
+      date: meal.date,
+      name: meal.name,
+      ingredients: meal.ingredients,
+      steps: meal.steps,
+      rating: fb?.rating ?? null,
+      feedback_notes: fb?.notes ?? null,
+      tags: fb?.tags ?? null,
+      meal_snapshot: fb?.meal_snapshot ?? null,
+    });
+
+    if (results.length >= 50) break;
+  }
+
+  return results;
 }

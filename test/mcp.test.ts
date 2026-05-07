@@ -431,18 +431,42 @@ describe("meal feedback and search", () => {
     expect(res.result?.["isError"]).toBe(true);
   });
 
-  it("snapshot is preserved after the meal is edited", async () => {
+  it("creates a new feedback record when the meal changes", async () => {
     // Replace MON's meal with something entirely different
     await resultText(601, "meal_plan_set", {
       meals: [{ date: MON, name: "risotto" }],
     });
-    // Update feedback (amend notes only) — snapshot must NOT change
+    // Feedback for the new meal → should create a NEW record snapshotting "risotto"
     const text = await resultText(602, "meal_feedback_set", {
       date: MON,
-      notes: "Still remember the pasta fondly",
+      rating: 5,
+      notes: "Risotto was excellent",
     });
     const data = JSON.parse(text) as Record<string, unknown>;
     const snapshot = data["meal_snapshot"] as Record<string, unknown>;
-    expect(snapshot["name"]).toBe("updated pasta");
+    expect(snapshot["name"]).toBe("risotto");
+  });
+
+  it("edits the current-meal feedback when the meal is unchanged", async () => {
+    // MON is still "risotto" — updating feedback should edit the existing risotto row
+    const text = await resultText(603, "meal_feedback_set", {
+      date: MON,
+      notes: "Risotto was excellent — will make again",
+    });
+    const data = JSON.parse(text) as Record<string, unknown>;
+    expect((data["meal_snapshot"] as Record<string, unknown>)["name"]).toBe("risotto");
+    // Rating from the previous call should be preserved
+    expect(data["rating"]).toBe(5);
+  });
+
+  it("meal_search returns feedback matching the current meal", async () => {
+    // Search for "risotto" — should find MON with the risotto feedback
+    const text = await resultText(604, "meal_search", { query: "risotto" });
+    const results = JSON.parse(text) as Array<Record<string, unknown>>;
+    const mon = results.find((r) => r["date"] === MON);
+    expect(mon).toBeDefined();
+    expect((mon!["meal_snapshot"] as Record<string, unknown>)["name"]).toBe("risotto");
+    // Original pasta feedback is a separate record — not shown for risotto meal
+    expect(mon!["rating"]).toBe(5);
   });
 });

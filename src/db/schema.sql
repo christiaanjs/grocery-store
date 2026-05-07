@@ -63,8 +63,8 @@ CREATE TABLE meal_feedback (
   tags TEXT,          -- JSON: string[]
   meal_snapshot TEXT, -- JSON snapshot of meal_entries row at feedback creation time
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE(household_id, date)
+  updated_at INTEGER NOT NULL
+  -- No UNIQUE(household_id, date): one row per meal version on that date
 );
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
@@ -72,3 +72,4 @@ CREATE INDEX idx_meal_entries_household_date ON meal_entries(household_id, date)
 CREATE INDEX idx_preferences_household ON preferences(household_id);
 CREATE INDEX idx_preference_history_household ON preference_history(household_id, preference_key);
 CREATE INDEX idx_meal_feedback_household ON meal_feedback(household_id);
+CREATE INDEX idx_meal_feedback_date ON meal_feedback(household_id, date);
