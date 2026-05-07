@@ -421,6 +421,13 @@ describe("meal feedback and search", () => {
     expect(res.result?.["isError"]).toBe(true);
   });
 
+  it("returns error when adding feedback for a date with no meal", async () => {
+    const res = await call(72, "meal_feedback_set", { date: "2020-01-01", rating: 4 });
+    const content = res.result?.["content"] as Array<{ type: string; text: string }>;
+    expect(res.result?.["isError"]).toBe(true);
+    expect(content?.[0]?.text).toContain("No meal set for 2020-01-01");
+  });
+
   it("returns error when meal_feedback_set has no feedback fields", async () => {
     const res = await call(70, "meal_feedback_set", { date: WED });
     expect(res.result?.["isError"]).toBe(true);

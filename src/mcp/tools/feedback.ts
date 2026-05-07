@@ -1,5 +1,5 @@
 import type { MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
-import { searchMeals, upsertMealFeedback } from "../../db/queries.ts";
+import { getMealEntries, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
 
 export const FEEDBACK_TOOLS: ToolDefinition[] = [
   {
@@ -89,6 +89,14 @@ export async function handleFeedbackTool(
       if (rating === undefined && notes === undefined && tags === undefined) {
         return {
           content: [{ type: "text", text: "at least one of rating, notes, or tags is required" }],
+          isError: true,
+        };
+      }
+
+      const mealExists = await getMealEntries(db, householdId, args["date"], args["date"]);
+      if (mealExists.length === 0) {
+        return {
+          content: [{ type: "text", text: `No meal set for ${args["date"]} — add a meal first before recording feedback` }],
           isError: true,
         };
       }
