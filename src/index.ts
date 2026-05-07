@@ -2,6 +2,7 @@ import type { Env } from "./types.ts";
 import { authenticate } from "./auth/middleware.ts";
 import { handleMcp } from "./mcp/server.ts";
 import {
+  handleProtectedResource,
   handleMetadata,
   handleRegister,
   handleAuthorize,
@@ -15,6 +16,9 @@ export default {
     const { method, pathname } = { method: request.method, pathname: url.pathname };
 
     if (env.ENABLE_OAUTH === "true") {
+      if (method === "GET" && pathname === "/.well-known/oauth-protected-resource") {
+        return handleProtectedResource(request);
+      }
       if (method === "GET" && pathname === "/.well-known/oauth-authorization-server") {
         return handleMetadata(request);
       }
@@ -32,7 +36,9 @@ export default {
       }
     }
 
-    if (method === "POST" && pathname === "/mcp") {
+    // Accept MCP requests at both / (Claude.ai sends to the base URL you provide)
+    // and /mcp (for curl testing).
+    if (method === "POST" && (pathname === "/" || pathname === "/mcp")) {
       const auth = await authenticate(request, env);
       if (!auth) {
         return new Response("Unauthorized", { status: 401 });

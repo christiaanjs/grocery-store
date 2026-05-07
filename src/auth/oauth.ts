@@ -45,6 +45,17 @@ function isValidRedirectUri(uri: unknown): uri is string {
   }
 }
 
+// GET /.well-known/oauth-protected-resource (RFC 9728)
+// Claude uses this to confirm the authorization server URL before starting auth.
+export function handleProtectedResource(request: Request): Response {
+  const issuer = issuerFromRequest(request);
+  return jsonResponse({
+    resource: issuer,
+    authorization_servers: [issuer],
+    bearer_methods_supported: ["header"],
+  });
+}
+
 // GET /.well-known/oauth-authorization-server
 export function handleMetadata(request: Request): Response {
   const issuer = issuerFromRequest(request);
