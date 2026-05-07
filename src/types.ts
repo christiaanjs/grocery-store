@@ -58,6 +58,36 @@ export interface MealEntryData {
   steps?: string[];
 }
 
+export interface Preference {
+  id: string;
+  household_id: string;
+  key: string;
+  value: string;
+  notes: string | null;
+  updated_at: number;
+}
+
+export interface PreferenceHistory {
+  id: string;
+  household_id: string;
+  preference_key: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_at: number;
+}
+
+export interface MealFeedback {
+  id: string;
+  household_id: string;
+  date: string;
+  rating: number | null;
+  notes: string | null;
+  tags: string | null;          // JSON-encoded string[]
+  meal_snapshot: string | null; // JSON snapshot of meal at feedback creation time
+  created_at: number;
+  updated_at: number;
+}
+
 // ── MCP protocol types ───────────────────────────────────────────────────
 
 export interface McpRequest {

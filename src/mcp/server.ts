@@ -1,9 +1,11 @@
-import type { Env, McpRequest, McpResponse } from "../types.ts";
+import type { Env, McpRequest, McpResponse, ToolResult } from "../types.ts";
 import { getOrCreateHousehold } from "../db/queries.ts";
+import { FEEDBACK_TOOLS, handleFeedbackTool } from "./tools/feedback.ts";
 import { MEAL_TOOLS, handleMealTool } from "./tools/meals.ts";
 import { PANTRY_TOOLS, handlePantryTool } from "./tools/pantry.ts";
+import { PREFERENCE_TOOLS, handlePreferenceTool } from "./tools/preferences.ts";
 
-const ALL_TOOLS = [...PANTRY_TOOLS, ...MEAL_TOOLS];
+const ALL_TOOLS = [...PANTRY_TOOLS, ...MEAL_TOOLS, ...PREFERENCE_TOOLS, ...FEEDBACK_TOOLS];
 const PROTOCOL_VERSION = "2024-11-05";
 
 export async function handleMcp(request: Request, env: Env, userId: string): Promise<Response> {
@@ -71,14 +73,23 @@ async function dispatch(req: McpRequest, env: Env, userId: string): Promise<McpR
 
       const isPantryTool = PANTRY_TOOLS.some((t) => t.name === params.name);
       const isMealTool = MEAL_TOOLS.some((t) => t.name === params.name);
+      const isPreferenceTool = PREFERENCE_TOOLS.some((t) => t.name === params.name);
+      const isFeedbackTool = FEEDBACK_TOOLS.some((t) => t.name === params.name);
 
-      if (!isPantryTool && !isMealTool) {
+      if (!isPantryTool && !isMealTool && !isPreferenceTool && !isFeedbackTool) {
         return { jsonrpc: "2.0", id, error: { code: -32601, message: `Unknown tool: ${params.name}` } };
       }
 
-      const toolResult = isPantryTool
-        ? await handlePantryTool(params.name, args, env.DB, householdId)
-        : await handleMealTool(params.name, args, env.DB, householdId);
+      let toolResult: ToolResult;
+      if (isPantryTool) {
+        toolResult = await handlePantryTool(params.name, args, env.DB, householdId);
+      } else if (isMealTool) {
+        toolResult = await handleMealTool(params.name, args, env.DB, householdId);
+      } else if (isPreferenceTool) {
+        toolResult = await handlePreferenceTool(params.name, args, env.DB, householdId);
+      } else {
+        toolResult = await handleFeedbackTool(params.name, args, env.DB, householdId);
+      }
 
       return { jsonrpc: "2.0", id, result: toolResult };
     }
