@@ -1,4 +1,4 @@
-import type { MealEntry, MealIngredient, PantryItem, User } from "../types.ts";
+import type { MealEntry, MealFeedback, MealIngredient, PantryItem, Preference, PreferenceHistory, User } from "../types.ts";
 
 // ── Users / households ───────────────────────────────────────────────────
 
@@ -200,4 +200,212 @@ export async function deleteMealEntries(
     .bind(householdId, ...dates)
     .run();
   return result.meta.changes;
+}
+
+// ── Preferences ──────────────────────────────────────────────────────────
+
+export async function listPreferences(
+  db: D1Database,
+  householdId: string,
+  key?: string,
+): Promise<Preference[]> {
+  let query = "SELECT * FROM preferences WHERE household_id = ?";
+  const bindings: unknown[] = [householdId];
+  if (key !== undefined) {
+    query += " AND key = ?";
+    bindings.push(key);
+  }
+  query += " ORDER BY key";
+  const result = await db.prepare(query).bind(...bindings).all<Preference>();
+  return result.results;
+}
+
+export async function getPreferenceHistory(
+  db: D1Database,
+  householdId: string,
+  key?: string,
+): Promise<PreferenceHistory[]> {
+  let query = "SELECT * FROM preference_history WHERE household_id = ?";
+  const bindings: unknown[] = [householdId];
+  if (key !== undefined) {
+    query += " AND preference_key = ?";
+    bindings.push(key);
+  }
+  query += " ORDER BY changed_at DESC";
+  const result = await db.prepare(query).bind(...bindings).all<PreferenceHistory>();
+  return result.results;
+}
+
+export async function setPreference(
+  db: D1Database,
+  householdId: string,
+  key: string,
+  value: string,
+  notes?: string | null,
+): Promise<Preference> {
+  const now = Date.now();
+  const existing = await db
+    .prepare("SELECT * FROM preferences WHERE household_id = ? AND key = ?")
+    .bind(householdId, key)
+    .first<Preference>();
+
+  const histId = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO preference_history (id, household_id, preference_key, old_value, new_value, changed_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(histId, householdId, key, existing?.value ?? null, value, now)
+    .run();
+
+  if (existing) {
+    await db
+      .prepare("UPDATE preferences SET value = ?, notes = ?, updated_at = ? WHERE id = ?")
+      .bind(value, notes !== undefined ? notes : existing.notes, now, existing.id)
+      .run();
+    const updated = await db
+      .prepare("SELECT * FROM preferences WHERE id = ?")
+      .bind(existing.id)
+      .first<Preference>();
+    return updated!;
+  }
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO preferences (id, household_id, key, value, notes, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id, householdId, key, value, notes ?? null, now)
+    .run();
+
+  return { id, household_id: householdId, key, value, notes: notes ?? null, updated_at: now };
+}
+
+export async function deletePreference(
+  db: D1Database,
+  householdId: string,
+  key: string,
+): Promise<boolean> {
+  const existing = await db
+    .prepare("SELECT * FROM preferences WHERE household_id = ? AND key = ?")
+    .bind(householdId, key)
+    .first<Preference>();
+
+  if (!existing) return false;
+
+  const now = Date.now();
+  const histId = crypto.randomUUID();
+  await db.batch([
+    db
+      .prepare(
+        "INSERT INTO preference_history (id, household_id, preference_key, old_value, new_value, changed_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .bind(histId, householdId, key, existing.value, null, now),
+    db
+      .prepare("DELETE FROM preferences WHERE household_id = ? AND key = ?")
+      .bind(householdId, key),
+  ]);
+  return true;
+}
+
+// ── Meal feedback ────────────────────────────────────────────────────────
+
+export async function upsertMealFeedback(
+  db: D1Database,
+  householdId: string,
+  date: string,
+  feedback: { rating?: number; notes?: string; tags?: string[] },
+): Promise<MealFeedback> {
+  const now = Date.now();
+  const tagsJson = feedback.tags !== undefined ? JSON.stringify(feedback.tags) : undefined;
+
+  const existing = await db
+    .prepare("SELECT * FROM meal_feedback WHERE household_id = ? AND date = ?")
+    .bind(householdId, date)
+    .first<MealFeedback>();
+
+  if (existing) {
+    await db
+      .prepare(
+        "UPDATE meal_feedback SET rating = ?, notes = ?, tags = ?, updated_at = ? WHERE id = ?",
+      )
+      .bind(
+        feedback.rating !== undefined ? feedback.rating : existing.rating,
+        feedback.notes !== undefined ? feedback.notes : existing.notes,
+        tagsJson !== undefined ? tagsJson : existing.tags,
+        now,
+        existing.id,
+      )
+      .run();
+    const updated = await db
+      .prepare("SELECT * FROM meal_feedback WHERE id = ?")
+      .bind(existing.id)
+      .first<MealFeedback>();
+    return updated!;
+  }
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO meal_feedback (id, household_id, date, rating, notes, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id, householdId, date, feedback.rating ?? null, feedback.notes ?? null, tagsJson ?? null, now, now)
+    .run();
+
+  return {
+    id,
+    household_id: householdId,
+    date,
+    rating: feedback.rating ?? null,
+    notes: feedback.notes ?? null,
+    tags: tagsJson ?? null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+export interface MealSearchRow {
+  date: string;
+  name: string;
+  ingredients: string | null;
+  steps: string | null;
+  rating: number | null;
+  feedback_notes: string | null;
+  tags: string | null;
+}
+
+export async function searchMeals(
+  db: D1Database,
+  householdId: string,
+  opts: { query?: string; minRating?: number; maxRating?: number; tag?: string },
+): Promise<MealSearchRow[]> {
+  let sql = `
+    SELECT me.date, me.name, me.ingredients, me.steps,
+           mf.rating, mf.notes AS feedback_notes, mf.tags
+    FROM meal_entries me
+    LEFT JOIN meal_feedback mf ON me.household_id = mf.household_id AND me.date = mf.date
+    WHERE me.household_id = ?
+  `;
+  const bindings: unknown[] = [householdId];
+
+  if (opts.query) {
+    const like = `%${opts.query}%`;
+    sql += " AND (me.name LIKE ? OR me.ingredients LIKE ? OR mf.notes LIKE ?)";
+    bindings.push(like, like, like);
+  }
+  if (opts.minRating !== undefined) {
+    sql += " AND mf.rating >= ?";
+    bindings.push(opts.minRating);
+  }
+  if (opts.maxRating !== undefined) {
+    sql += " AND mf.rating <= ?";
+    bindings.push(opts.maxRating);
+  }
+  if (opts.tag) {
+    sql += ` AND mf.tags LIKE ?`;
+    bindings.push(`%"${opts.tag}"%`);
+  }
+  sql += " ORDER BY me.date DESC LIMIT 50";
+
+  const result = await db.prepare(sql).bind(...bindings).all<MealSearchRow>();
+  return result.results;
 }

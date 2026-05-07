@@ -74,6 +74,11 @@ describe("tools/list", () => {
       "meal_plan_get",
       "meal_plan_set",
       "meal_plan_delete",
+      "preferences_list",
+      "preferences_set",
+      "preferences_delete",
+      "meal_feedback_set",
+      "meal_search",
     ]);
   });
 
@@ -259,6 +264,168 @@ describe("meal plans", () => {
 
   it("returns error when a meal entry is missing date or name", async () => {
     const res = await call(33, "meal_plan_set", { meals: [{ date: MON }] });
+    expect(res.result?.["isError"]).toBe(true);
+  });
+});
+
+// ── Preferences ───────────────────────────────────────────────────────────
+
+describe("preferences", () => {
+  it("returns message when no preferences are set", async () => {
+    const text = await resultText(40, "preferences_list");
+    expect(text).toContain("No preferences set");
+  });
+
+  it("sets a new preference", async () => {
+    const text = await resultText(41, "preferences_set", {
+      key: "dietary",
+      value: "vegetarian",
+      notes: "No meat or fish",
+    });
+    const pref = JSON.parse(text) as Record<string, unknown>;
+    expect(pref["key"]).toBe("dietary");
+    expect(pref["value"]).toBe("vegetarian");
+    expect(pref["notes"]).toBe("No meat or fish");
+  });
+
+  it("lists the created preference", async () => {
+    const text = await resultText(42, "preferences_list");
+    const prefs = JSON.parse(text) as Array<{ key: string; value: string }>;
+    expect(prefs.some((p) => p.key === "dietary" && p.value === "vegetarian")).toBe(true);
+  });
+
+  it("sets a second preference", async () => {
+    await resultText(43, "preferences_set", { key: "allergy", value: "nut-free" });
+    const text = await resultText(44, "preferences_list");
+    const prefs = JSON.parse(text) as Array<{ key: string }>;
+    expect(prefs.length).toBe(2);
+  });
+
+  it("updates an existing preference and records history", async () => {
+    await resultText(45, "preferences_set", { key: "dietary", value: "vegan" });
+    const text = await resultText(46, "preferences_list", { key: "dietary", include_history: true });
+    const data = JSON.parse(text) as {
+      preferences: Array<{ value: string }>;
+      history: Array<{ old_value: string | null; new_value: string }>;
+    };
+    expect(data.preferences[0]?.value).toBe("vegan");
+    expect(data.history.length).toBeGreaterThanOrEqual(2);
+    const firstEntry = data.history[data.history.length - 1];
+    expect(firstEntry?.old_value).toBeNull();
+    expect(firstEntry?.new_value).toBe("vegetarian");
+  });
+
+  it("filters to a specific key", async () => {
+    const text = await resultText(47, "preferences_list", { key: "allergy" });
+    const prefs = JSON.parse(text) as Array<{ key: string }>;
+    expect(prefs.length).toBe(1);
+    expect(prefs[0]?.key).toBe("allergy");
+  });
+
+  it("deletes a preference and records the deletion", async () => {
+    const text = await resultText(48, "preferences_delete", { key: "allergy" });
+    expect(text).toContain("Deleted preference: allergy");
+    const listText = await resultText(49, "preferences_list");
+    const prefs = JSON.parse(listText) as Array<{ key: string }>;
+    expect(prefs.every((p) => p.key !== "allergy")).toBe(true);
+  });
+
+  it("returns error when preferences_set called without key", async () => {
+    const res = await call(50, "preferences_set", { value: "vegan" });
+    expect(res.result?.["isError"]).toBe(true);
+  });
+});
+
+// ── Meal feedback & search ────────────────────────────────────────────────
+
+describe("meal feedback and search", () => {
+  const MON = "2026-05-04";
+  const TUE = "2026-05-05";
+  const WED = "2026-05-06";
+
+  it("adds feedback to a meal", async () => {
+    const text = await resultText(60, "meal_feedback_set", {
+      date: MON,
+      rating: 4,
+      notes: "Pasta was great, slightly overcooked",
+      tags: ["family_favorite", "quick"],
+    });
+    const data = JSON.parse(text) as Record<string, unknown>;
+    expect(data["date"]).toBe(MON);
+    expect(data["rating"]).toBe(4);
+    expect(data["tags"]).toContain("family_favorite");
+  });
+
+  it("adds feedback to a second meal", async () => {
+    await resultText(61, "meal_feedback_set", {
+      date: TUE,
+      rating: 5,
+      notes: "Best stir fry ever, will repeat",
+      tags: ["would_repeat"],
+    });
+  });
+
+  it("updates existing feedback", async () => {
+    const text = await resultText(62, "meal_feedback_set", {
+      date: MON,
+      rating: 3,
+      notes: "Actually pasta was a bit bland",
+    });
+    const data = JSON.parse(text) as Record<string, unknown>;
+    expect(data["rating"]).toBe(3);
+    expect(data["notes"]).toBe("Actually pasta was a bit bland");
+  });
+
+  it("searches by keyword in meal name", async () => {
+    const text = await resultText(63, "meal_search", { query: "pasta" });
+    const results = JSON.parse(text) as Array<{ name: string }>;
+    expect(results.some((r) => r.name.includes("pasta"))).toBe(true);
+  });
+
+  it("searches by keyword in feedback notes", async () => {
+    const text = await resultText(64, "meal_search", { query: "stir fry" });
+    const results = JSON.parse(text) as Array<{ name: string }>;
+    expect(results.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("filters by minimum rating", async () => {
+    const text = await resultText(65, "meal_search", { min_rating: 5 });
+    const results = JSON.parse(text) as Array<{ rating: number }>;
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.every((r) => r.rating >= 5)).toBe(true);
+  });
+
+  it("filters by tag", async () => {
+    const text = await resultText(66, "meal_search", { tag: "would_repeat" });
+    const results = JSON.parse(text) as Array<{ tags: string[] }>;
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.every((r) => r.tags.includes("would_repeat"))).toBe(true);
+  });
+
+  it("searches by ingredient keyword", async () => {
+    // TUE has tofu as ingredient (set in meal plans describe block above)
+    const text = await resultText(67, "meal_search", { query: "tofu" });
+    const results = JSON.parse(text) as Array<{ name: string }>;
+    expect(results.some((r) => r.name === "stir fry")).toBe(true);
+  });
+
+  it("returns no-match message for unmatched query", async () => {
+    const text = await resultText(68, "meal_search", { query: "xyzzy_no_match" });
+    expect(text).toContain("No meals found");
+  });
+
+  it("returns error when meal_feedback_set is missing date", async () => {
+    const res = await call(69, "meal_feedback_set", { rating: 3 });
+    expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("returns error when meal_feedback_set has no feedback fields", async () => {
+    const res = await call(70, "meal_feedback_set", { date: WED });
+    expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("returns error when meal_search has no filters", async () => {
+    const res = await call(71, "meal_search", {});
     expect(res.result?.["isError"]).toBe(true);
   });
 });
