@@ -34,7 +34,7 @@ Save the **Client ID** and generate a **Client secret**.
 ```bash
 wrangler secret put GITHUB_CLIENT_ID --env staging
 wrangler secret put GITHUB_CLIENT_SECRET --env staging
-wrangler secret put JWT_SECRET --env staging        # any random 32+ char string
+wrangler secret put JWT_SECRET --env staging        # any random 32+ char string e.g. `openssl rand -base64 32`
 wrangler secret put DEV_TOKEN --env staging         # optional, for curl testing
 wrangler secret put DEV_USER_ID --env staging       # optional, e.g. usr_local
 ```
