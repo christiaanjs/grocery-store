@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  worker:
+    name: Worker (typecheck + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,3 +21,26 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  frontend:
+    name: Frontend (typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: frontend
+
+      - name: Test
+        run: npm test
+        working-directory: frontend
