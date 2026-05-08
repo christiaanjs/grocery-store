@@ -118,7 +118,8 @@ describe("pantry", () => {
         { name: "olive oil", category: "pantry", quantity: 500, unit: "ml" },
       ],
     });
-    expect(text).toBe("Updated 2 item(s)");
+    const items = JSON.parse(text) as Array<{ name: string }>;
+    expect(items.map((i) => i.name).sort()).toEqual(["milk", "olive oil"]);
   });
 
   it("filters by category", async () => {
@@ -129,7 +130,7 @@ describe("pantry", () => {
 
   it("marks an item as out of stock", async () => {
     const text = await resultText(15, "pantry_mark_out", { names: ["milk"] });
-    expect(text).toBe("Marked 1 item(s) as out of stock");
+    expect(JSON.parse(text)).toEqual({ marked_out: 1 });
   });
 
   it("filters to only out-of-stock items", async () => {
@@ -160,7 +161,7 @@ describe("meal plans", () => {
 
   it("returns message when no entries exist", async () => {
     const text = await resultText(20, "meal_plan_get", { week_start: WEEK });
-    expect(text).toContain("No meals found");
+    expect(JSON.parse(text)).toEqual([]);
   });
 
   it("sets a single meal with name only", async () => {
@@ -246,7 +247,7 @@ describe("meal plans", () => {
 
   it("deletes specific entries", async () => {
     const text = await resultText(30, "meal_plan_delete", { dates: [WED, THU] });
-    expect(text).toContain("Deleted 2");
+    expect(JSON.parse(text)).toEqual({ deleted: 2 });
     const remaining = await resultText(31, "meal_plan_get", { week_start: WEEK });
     const entries = JSON.parse(remaining) as Array<{ date: string }>;
     expect(entries.every((e) => e.date !== WED && e.date !== THU)).toBe(true);

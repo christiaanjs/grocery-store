@@ -43,7 +43,12 @@ async function mcpCall<T>(name: string, args: Record<string, unknown>): Promise<
   if (!result) throw new Error("Empty MCP response");
   if (result.isError) throw new Error(result.content[0]?.text ?? "Tool error");
 
-  return JSON.parse(result.content[0].text) as T;
+  const text = result.content[0]?.text ?? "";
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`Tool response was not valid JSON: ${text}`);
+  }
 }
 
 export class AuthError extends Error {
