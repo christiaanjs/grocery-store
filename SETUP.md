@@ -1,7 +1,6 @@
 # Bootstrap guide
 
-Manual steps to get the project running. Phase 1 gets you a curl-testable MCP server;
-Phase 2 wires up OAuth so you can connect it to Claude.ai.
+Manual steps to get the project running end-to-end.
 
 ---
 
@@ -13,7 +12,7 @@ Phase 2 wires up OAuth so you can connect it to Claude.ai.
 
 ---
 
-## Phase 1 — local dev with curl
+## Local development
 
 ### 1. Create the D1 database
 
@@ -21,42 +20,61 @@ Phase 2 wires up OAuth so you can connect it to Claude.ai.
 wrangler d1 create grocery-store-db
 ```
 
-Copy the `database_id` from the output and paste it into `wrangler.toml`:
+Copy the `database_id` from the output and paste it into `wrangler.toml`.
 
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "grocery-store-db"
-database_id = "<paste here>"
-```
+### 2. Register a GitHub OAuth App for localhost
 
-### 2. Create `.dev.vars`
+Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**:
+
+| Field | Value |
+|-------|-------|
+| Application name | Grocery Store (local) |
+| Homepage URL | `http://localhost:8787` |
+| Authorization callback URL | `http://localhost:8787/oauth/callback` |
+
+Save the **Client ID** and generate a **Client Secret**.
+
+### 3. Create `.dev.vars`
 
 This file is gitignored. Create it at the project root:
+
+```
+GITHUB_CLIENT_ID=<client-id from step 2>
+GITHUB_CLIENT_SECRET=<client-secret from step 2>
+JWT_SECRET=<any random string, min 32 chars — e.g. openssl rand -hex 32>
+ALLOWED_ORIGIN=http://localhost:5173
+```
+
+`DEV_TOKEN` and `DEV_USER_ID` are still supported for curl-only testing but are not required when using the browser frontend.
+
+### 4. Create `frontend/.env.local`
+
+```
+VITE_WORKER_URL=http://localhost:8787
+```
+
+### 5. Apply migrations and start both servers
+
+```bash
+npm run migrate:local
+
+# Terminal 1 — Worker
+npm run dev
+
+# Terminal 2 — Frontend
+cd frontend && npm run dev
+```
+
+Open `http://localhost:5173`. Sign in with GitHub and you're good to go.
+
+### 6. curl testing (optional)
+
+If you also want to test with curl, add to `.dev.vars`:
 
 ```
 DEV_TOKEN=any-string-you-choose
 DEV_USER_ID=usr_local
 ```
-
-`DEV_TOKEN` is what you'll put in the `X-Dev-Token` header when testing with curl.
-`DEV_USER_ID` is the user ID the middleware injects for all dev requests.
-
-### 3. Apply migrations locally
-
-Once the initial migration file exists (Claude will create it):
-
-```bash
-npm run migrate:local
-```
-
-### 4. Run the dev server
-
-```bash
-npm run dev
-```
-
-The Worker starts at `http://localhost:8787`. Test the MCP endpoint:
 
 ```bash
 curl -X POST http://localhost:8787/mcp \
@@ -67,17 +85,9 @@ curl -X POST http://localhost:8787/mcp \
 
 ---
 
-## Phase 2 — deploy and connect to Claude.ai
+## Production deployment
 
-### 5. Deploy to Cloudflare
-
-```bash
-npm run deploy
-```
-
-Note the Worker URL from the output (e.g. `https://grocery-store.<your-subdomain>.workers.dev`).
-
-### 6. Register a GitHub OAuth App
+### Register a GitHub OAuth App for production
 
 Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**:
 
@@ -87,35 +97,40 @@ Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth 
 | Homepage URL | your Worker URL |
 | Authorization callback URL | `https://<your-worker>.workers.dev/oauth/callback` |
 
-Save the **Client ID** and generate a **Client Secret**.
-
-### 7. Set production secrets
+### Set production secrets
 
 ```bash
 wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
-wrangler secret put JWT_SECRET        # any long random string, e.g. openssl rand -hex 32
+wrangler secret put JWT_SECRET        # openssl rand -hex 32
 ```
 
-### 8. Enable OAuth
+### Deploy the Worker
 
-In `wrangler.toml`, flip the feature flag:
-
-```toml
-[vars]
-ENABLE_OAUTH = "true"
+```bash
+npm run migrate:prod
+npm run deploy
 ```
 
-Redeploy: `npm run deploy`
+The deploy CI workflow (`deploy-prod.yml`) can also be triggered manually from GitHub Actions.
 
-### 9. Add the connector in Claude.ai
+### Deploy the frontend
+
+```bash
+cd frontend
+npm run build
+npx wrangler pages deploy dist --project-name=grocery-store-frontend
+```
+
+Or trigger the `deploy-pages.yml` workflow from GitHub Actions.
+
+### Connect to Claude.ai
 
 1. Go to **Claude.ai → Customize → Connectors → + → Add custom connector**
 2. Enter your MCP server URL: `https://<your-worker>.workers.dev/mcp`
-3. Under **Advanced settings**, enter the OAuth **Client ID** and **Client Secret**
-   (from step 6) — required because the server doesn't implement Dynamic Client
-   Registration
-4. Click **Add**, then go through the GitHub OAuth flow to authenticate
+3. Click **Add**, then complete the GitHub OAuth flow
+
+Claude.ai uses Dynamic Client Registration (DCR) — no manual client ID/secret entry needed.
 
 ---
 

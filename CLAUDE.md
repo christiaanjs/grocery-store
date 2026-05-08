@@ -2,19 +2,20 @@
 
 ## Current status
 
-**Phase 1 complete.** Core MCP server is implemented and tested locally. Auth uses a hardcoded dev token (`X-Dev-Token`). OAuth (Phase 2) is not yet implemented — Claude.ai integration requires it.
+**Phase 2 complete.** GitHub OAuth 2.1 + PKCE is implemented. Browser frontend (Preact + Vite + FullCalendar) is deployed on Cloudflare Pages. Both Claude.ai and the browser UI authenticate via the same OAuth server.
 
 ---
 
 ## Project overview
 
-A remote MCP server that gives Claude persistent memory for weekly dinner planning.
-Core features: pantry/grocery tracking (what's in stock, what's run out), meal planning for the week.
+A remote MCP server that gives Claude persistent memory for weekly dinner planning, with a browser UI for direct pantry and meal-plan management.
+Core features: pantry/grocery tracking (what's in stock, what's run out), meal planning with a drag-and-drop calendar.
 
 **Stack:**
 - Cloudflare Worker (MCP server + OAuth 2.1)
+- Cloudflare Pages (browser frontend — Preact + Vite + FullCalendar)
 - Cloudflare D1 (SQLite — pantry, meal plans, users)
-- TypeScript throughout
+- TypeScript throughout (shared types in `types/shared.ts`)
 - Wrangler for local dev and deployment
 - GitHub Actions for CI/CD
 
@@ -24,32 +25,51 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 
 ```
 /
-├── src/
-│   ├── index.ts          # Worker entry point — request routing
+├── src/                      # Cloudflare Worker
+│   ├── index.ts              # Entry point — routing + CORS
 │   ├── mcp/
-│   │   ├── server.ts     # MCP protocol handler
-│   │   └── tools/        # One file per MCP tool
+│   │   ├── server.ts         # MCP protocol handler
+│   │   └── tools/
 │   │       ├── pantry.ts
 │   │       └── meals.ts
 │   ├── auth/
-│   │   └── middleware.ts # Auth checks — dev token now, OAuth Phase 2
+│   │   ├── middleware.ts     # Bearer JWT + dev token auth
+│   │   ├── oauth.ts          # GitHub OAuth 2.1 + PKCE server
+│   │   └── jwt.ts            # JWT sign/verify
 │   ├── db/
-│   │   ├── schema.sql    # Source of truth for D1 schema
-│   │   └── queries.ts    # Typed query helpers
-│   └── types.ts          # Shared TypeScript types
-├── migrations/           # D1 migration files (wrangler d1 migrations create)
+│   │   ├── schema.sql        # Source of truth for D1 schema
+│   │   ├── queries.ts        # Typed query helpers
+│   │   └── oauth.ts          # OAuth table queries
+│   └── types.ts              # Worker types (re-exports shared.ts + adds Env)
+├── types/
+│   └── shared.ts             # Data types shared by Worker and frontend
+├── frontend/                 # Cloudflare Pages SPA
+│   ├── src/
+│   │   ├── auth.ts           # Browser PKCE OAuth flow + token storage
+│   │   ├── api.ts            # MCP transport abstraction
+│   │   ├── App.tsx           # Root component, routing
+│   │   └── views/
+│   │       ├── Pantry.tsx
+│   │       └── MealPlan.tsx
+│   ├── index.html
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── package.json
+├── migrations/               # D1 migration files
 ├── test/
-│   ├── mcp.test.ts       # Integration tests (vitest + @cloudflare/vitest-pool-workers)
-│   ├── setup.ts          # Applies D1 migrations before each test file
-│   ├── env.d.ts          # Cloudflare.Env augmentation for test bindings
-│   └── tsconfig.json     # Extends root tsconfig, adds workers/vitest types
+│   ├── mcp.test.ts           # Integration tests (vitest + @cloudflare/vitest-pool-workers)
+│   ├── setup.ts              # Applies D1 migrations before each test file
+│   ├── env.d.ts              # Cloudflare.Env augmentation for test bindings
+│   └── tsconfig.json
 ├── .github/workflows/
-│   └── ci.yml            # Typecheck + test on push/PR
+│   ├── ci.yml                # Typecheck + test on push/PR
+│   ├── deploy-prod.yml       # Worker production deploy (manual)
+│   ├── deploy-pages.yml      # Frontend production deploy (manual)
+│   └── deploy-staging.yml    # Sequential staging deploy: Worker then Pages (manual)
 ├── vitest.config.ts
 ├── tsconfig.json
 ├── wrangler.toml
-├── package.json
-└── CLAUDE.md             # This file
+└── package.json
 ```
 
 ---
@@ -59,62 +79,73 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 ```bash
 # Install dependencies
 npm install
+cd frontend && npm install && cd ..
 
-# Local development (Worker + D1 local)
-npm run dev               # wrangler dev
+# Local development
+npm run dev                   # Worker on http://localhost:8787
+cd frontend && npm run dev    # Frontend on http://localhost:5173
 
 # Run tests (single pass)
-npm test                  # vitest run
+npm test                      # vitest run
 
 # Run tests in watch mode
-npm run test:watch        # vitest
+npm run test:watch            # vitest
 
-# Type-check (src + test)
-npm run typecheck         # tsc --noEmit && tsc --noEmit -p test/tsconfig.json
+# Type-check
+npm run typecheck             # Worker + test
+cd frontend && npm run typecheck  # Frontend
 
 # Apply DB migrations locally
-npm run migrate:local     # wrangler d1 migrations apply grocery-store-db --local
+npm run migrate:local
 
 # Apply DB migrations to production
-npm run migrate:prod      # wrangler d1 migrations apply grocery-store-db --remote
+npm run migrate:prod
 
-# Deploy to Cloudflare
-npm run deploy            # wrangler deploy
+# Deploy Worker to Cloudflare
+npm run deploy
 
 # Create a new migration file
-npm run migration:new -- <name>   # wrangler d1 migrations create grocery-store-db <name>
+npm run migration:new -- <name>
 
 # Tail production logs
-npm run logs              # wrangler tail
+npm run logs
 ```
 
 ---
 
 ## Development workflow
 
-- During early development, auth is bypassed with a hardcoded `X-Dev-Token` header
-  checked in `auth/middleware.ts`. OAuth is added last.
-- Use `--local` flag for all D1 operations during development — this hits a local SQLite
-  file, not the remote database.
-- The MCP server can be tested manually using curl against `http://localhost:8787`.
-- Automated integration tests live in `test/mcp.test.ts` — run with `npm test`. Tests use
-  `@cloudflare/vitest-pool-workers` which runs code in a real Workers runtime (Miniflare)
-  with an in-memory D1 database. Migrations are applied automatically via `test/setup.ts`.
+- OAuth is always on (`ENABLE_OAUTH = "true"` in `wrangler.toml`). For local dev you need a GitHub OAuth App pointed at `http://localhost:8787/oauth/callback` — see SETUP.md.
+- Required `.dev.vars` for full local dev:
+  ```
+  GITHUB_CLIENT_ID=<local oauth app client id>
+  GITHUB_CLIENT_SECRET=<local oauth app client secret>
+  JWT_SECRET=<any 32+ char random string>
+  ALLOWED_ORIGIN=http://localhost:5173
+  ```
+- Optional `.dev.vars` additions for curl testing (not needed for the browser frontend):
+  ```
+  DEV_TOKEN=some-local-secret
+  DEV_USER_ID=usr_local
+  ```
+- Required `frontend/.env.local`:
+  ```
+  VITE_WORKER_URL=http://localhost:8787
+  ```
+- Use `--local` flag for all D1 operations during development — this hits a local SQLite file, not the remote database.
+- Automated integration tests live in `test/mcp.test.ts`. Tests use `@cloudflare/vitest-pool-workers` which runs code in a real Workers runtime (Miniflare) with an in-memory D1 database.
 
 ---
 
 ## Database schema
 
-Canonical schema lives in `src/db/schema.sql`. Never edit D1 directly — always go through
-migrations so the schema stays in sync across local/prod.
+Canonical schema lives in `src/db/schema.sql`. Never edit D1 directly — always go through migrations so the schema stays in sync across local/prod.
 
 ```sql
--- src/db/schema.sql (for reference — apply via migrations)
-
 CREATE TABLE users (
   id TEXT PRIMARY KEY,          -- GitHub user ID (oauth sub)
   email TEXT,
-  household_id TEXT NOT NULL,   -- allows shared pantry (e.g. you + Ruby)
+  household_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 
@@ -128,31 +159,32 @@ CREATE TABLE pantry_items (
   id TEXT PRIMARY KEY,
   household_id TEXT NOT NULL REFERENCES households(id),
   name TEXT NOT NULL,
-  category TEXT,                -- 'produce', 'dairy', 'pantry', etc.
+  category TEXT,
   quantity REAL,
-  unit TEXT,                    -- 'g', 'ml', 'count', etc.
-  in_stock INTEGER NOT NULL DEFAULT 1,  -- 0 = run out
+  unit TEXT,
+  in_stock INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE meal_plans (
   id TEXT PRIMARY KEY,
   household_id TEXT NOT NULL REFERENCES households(id),
-  week_start TEXT NOT NULL,     -- ISO date, Monday of the week
-  meals TEXT NOT NULL,          -- JSON blob: { mon: {...}, tue: {...}, ... }
+  date TEXT NOT NULL,           -- ISO date (YYYY-MM-DD)
+  name TEXT NOT NULL,
+  ingredients TEXT,             -- JSON-encoded MealIngredient[]
+  steps TEXT,                   -- JSON-encoded string[]
   created_at INTEGER NOT NULL
 );
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
-CREATE INDEX idx_meals_household_week ON meal_plans(household_id, week_start);
+CREATE INDEX idx_meals_household_date ON meal_plans(household_id, date);
 ```
 
 ---
 
 ## MCP tools
 
-These are the tools exposed to Claude. Add new tools in `src/mcp/tools/`.
-Each tool file exports a `definition` (JSON Schema) and a `handler` function.
+Add new tools in `src/mcp/tools/`. Each file exports a `definition` (JSON Schema) and a `handler` function.
 
 ### Pantry tools
 
@@ -167,8 +199,9 @@ Each tool file exports a `definition` (JSON Schema) and a `handler` function.
 
 | Tool | Description |
 |------|-------------|
-| `meal_plan_get` | Get the meal plan for a given week (defaults to current week) |
+| `meal_plan_get` | Get meals for a date range |
 | `meal_plan_set` | Set or update meals for specific days |
+| `meal_plan_delete` | Remove meals for specific days |
 | `meal_plan_suggest` | (future) Suggest meals based on what's in the pantry |
 
 ---
@@ -177,89 +210,77 @@ Each tool file exports a `definition` (JSON Schema) and a `handler` function.
 
 - Transport: HTTP (Streamable HTTP, not SSE) — required for Cloudflare Workers
 - Endpoint: `POST /mcp` — all MCP messages go here
-- Auth header during dev (curl only): `X-Dev-Token: <value from .dev.vars>`
 - Auth header in prod: `Authorization: Bearer <OAuth access token>`
-- Claude.ai always uses OAuth — it never sends custom headers like `X-Dev-Token`
+- Auth header for curl testing: `X-Dev-Token: <value from .dev.vars>` (requires `DEV_TOKEN` set)
 - MCP version: target the latest stable spec (https://spec.modelcontextprotocol.io/specification/)
-
-Cloudflare Workers do not support long-lived SSE connections reliably — use the
-Streamable HTTP transport, not the SSE transport.
 
 ---
 
-## Auth plan
+## Auth
 
-**Phase 1 (now):** Hardcoded dev token for curl-based testing only.
-Set `DEV_TOKEN` in `.dev.vars` and `DEV_USER_ID` to your user ID.
-The middleware skips OAuth if the `X-Dev-Token` header matches.
+GitHub OAuth 2.1 with PKCE. The Worker acts as both an OAuth server (to Claude.ai and the browser) and an OAuth client (to GitHub).
 
-> **Note:** Claude.ai always uses OAuth — static bearer tokens are not supported.
-> `X-Dev-Token` is only useful for direct curl testing, not for testing with Claude.ai.
-> To test end-to-end with Claude.ai, OAuth must be implemented.
+### Flow
 
-**Phase 2 (later):** GitHub OAuth 2.1 with PKCE. The MCP server acts as both an OAuth
-server to Claude.ai and an OAuth client to GitHub (third-party auth flow — explicitly
-supported by the MCP spec).
+1. Client discovers auth endpoints via `GET /.well-known/oauth-authorization-server` (RFC 8414)
+2. Client hits `GET /authorize` → Worker redirects to GitHub OAuth
+3. GitHub redirects to `GET /oauth/callback` → Worker exchanges code for GitHub token, looks up or creates user, issues a short-lived MCP auth code
+4. Worker redirects to the client's `redirect_uri` with the auth code
+5. Client POSTs to `POST /token` with the auth code + PKCE verifier → Worker returns a signed JWT
+6. Client uses the JWT as `Authorization: Bearer` on MCP requests; refreshes proactively 5 min before expiry
 
-### Auth type
+### Endpoints
 
-Claude supports five auth types. Use **`oauth_dcr`** (Dynamic Client Registration) —
-it's available without any approval process and is the simplest path.
-Note: DCR registers a new client on every fresh connection; for a personal server this
-is acceptable.
-
-### Full OAuth flow
-
-1. Claude.ai discovers auth endpoints via `GET /.well-known/oauth-authorization-server`
-   (RFC8414 metadata doc). **Required** — without it Claude.ai falls back to `/authorize`
-   and `/token` at the domain root.
-2. Claude.ai hits `GET /authorize` → Worker redirects user to GitHub OAuth
-3. GitHub redirects to `GET /oauth/callback` → Worker exchanges code for GitHub token,
-   looks up or creates user, issues a short-lived MCP auth code
-4. Worker redirects to **`https://claude.ai/api/mcp/auth_callback`** with the MCP auth
-   code. This is Claude.ai's fixed callback URL — the Worker must redirect here, not
-   back to a custom URL.
-5. Claude.ai posts to `POST /token` with the MCP auth code + PKCE verifier → Worker
-   validates and returns a signed JWT (via `crypto.subtle`)
-6. Claude.ai uses the JWT as `Authorization: Bearer` on all MCP requests; refreshes
-   proactively 5 min before expiry and reactively on 401
-
-### Required OAuth endpoints
-
-| Endpoint | Path | Purpose |
-|----------|------|---------|
-| Metadata discovery | `GET /.well-known/oauth-authorization-server` | Advertises all other endpoints |
-| Authorization | `GET /authorize` | Starts GitHub redirect |
-| Token exchange | `POST /token` | Issues MCP JWT for auth code; handles refresh |
-| Registration | `POST /register` | DCR — Claude registers itself automatically |
+| Path | Purpose |
+|------|---------|
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 resource metadata |
+| `POST /register` | Dynamic Client Registration (RFC 7591) |
+| `GET /authorize` | Starts GitHub redirect |
+| `POST /token` | Issues JWT for auth code or refresh token |
+| `GET /oauth/callback` | GitHub OAuth callback |
 
 ### Token refresh
 
-When a refresh token is invalid or expired, return an RFC 6749-compliant error
-(`invalid_grant`) rather than a generic 400/401, so Claude.ai knows to restart the
-auth flow rather than retry indefinitely.
-
-Keep OAuth behind a feature flag (`ENABLE_OAUTH=true` in `wrangler.toml`) so it can
-be built without breaking Phase 1 curl testing.
+Returns `invalid_grant` (RFC 6749) when a refresh token is expired or invalid, so clients restart the auth flow rather than retrying indefinitely.
 
 ---
 
 ## Environment variables
 
-Stored in `.dev.vars` locally (gitignored), and Cloudflare secrets in prod.
+### `.dev.vars` (local only, gitignored)
 
 ```
-# .dev.vars (local only, never commit)
+GITHUB_CLIENT_ID=<local oauth app>
+GITHUB_CLIENT_SECRET=<local oauth app>
+JWT_SECRET=<32+ char random string>
+ALLOWED_ORIGIN=http://localhost:5173
+
+# Optional — only needed for curl testing:
 DEV_TOKEN=some-local-secret
 DEV_USER_ID=usr_local
+```
 
-# Production secrets (set via: wrangler secret put <NAME>)
+### `frontend/.env.local` (gitignored)
+
+```
+VITE_WORKER_URL=http://localhost:8787
+```
+
+### Production secrets (set via `wrangler secret put <NAME>`)
+
+```
 GITHUB_CLIENT_ID
 GITHUB_CLIENT_SECRET
 JWT_SECRET
 ```
 
-Non-secret config goes in `wrangler.toml` under `[vars]`.
+### `wrangler.toml` vars (non-secret, committed)
+
+```
+ENABLE_OAUTH = "true"
+ALLOWED_ORIGIN = "https://grocery-store-frontend.pages.dev"
+```
 
 ---
 
@@ -267,10 +288,11 @@ Non-secret config goes in `wrangler.toml` under `[vars]`.
 
 - TypeScript strict mode on
 - No `any` — use `unknown` and narrow explicitly
+- Shared data types go in `types/shared.ts`; Worker-specific types in `src/types.ts`
 - D1 queries go in `src/db/queries.ts` — no inline SQL elsewhere
 - Each MCP tool handler is a pure async function: `(args, env, userId) => Promise<ToolResult>`
 - Errors returned as MCP error responses, not thrown (Workers have no uncaught handler)
-- Dates stored as Unix timestamps (integers) in D1; ISO strings in MCP responses
+- Dates stored as Unix timestamps (integers) in D1; ISO date strings (`YYYY-MM-DD`) in MCP responses
 
 ---
 

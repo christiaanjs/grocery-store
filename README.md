@@ -1,8 +1,8 @@
 # Grocery Store
 
-A remote [MCP](https://spec.modelcontextprotocol.io/specification/) server that gives Claude persistent memory for weekly dinner planning. Track what's in your pantry, what's run out, and plan meals for the week — all from a Claude conversation.
+A remote [MCP](https://spec.modelcontextprotocol.io/specification/) server that gives Claude persistent memory for weekly dinner planning. Track what's in your pantry, what's run out, and plan meals for the week — all from a Claude conversation or the browser UI.
 
-Built on Cloudflare Workers + D1 (SQLite).
+Built on Cloudflare Workers + D1 (SQLite) + Cloudflare Pages.
 
 ---
 
@@ -16,8 +16,11 @@ Claude gets seven tools:
 | `pantry_update` | Update quantity/stock for an item (creates if new) |
 | `pantry_mark_out` | Mark one or more items as out of stock |
 | `pantry_bulk_update` | Update multiple items at once (e.g. after a grocery run) |
-| `meal_plan_get` | Get the meal plan for a given week |
+| `meal_plan_get` | Get meals for a date range |
 | `meal_plan_set` | Set or update meals for specific days |
+| `meal_plan_delete` | Remove meals for specific days |
+
+The browser frontend provides the same functionality with a pantry table and a drag-and-drop meal calendar.
 
 Example conversation:
 > "We're out of olive oil and eggs. Plan dinners for this week using what we have."
@@ -28,110 +31,85 @@ Example conversation:
 
 ```
 Claude.ai  ──(OAuth)──▶  Cloudflare Worker  ──▶  D1 (SQLite)
-                              │
-                         MCP over HTTP
-                        (Streamable HTTP transport)
+                              ▲
+Browser UI ──(OAuth)──────────┘
+(Cloudflare Pages)
+        MCP over HTTP (Streamable HTTP transport)
 ```
 
 - **Transport:** Streamable HTTP (not SSE — Workers don't support long-lived connections)
-- **Auth:** Dev token for local testing; GitHub OAuth 2.1 + PKCE for Claude.ai (Phase 2)
+- **Auth:** GitHub OAuth 2.1 + PKCE; browser uses Dynamic Client Registration
 - **Database:** Cloudflare D1 with households, users, pantry items, and meal plans
 
 ---
 
 ## Getting started
 
-### Prerequisites
+See [SETUP.md](./SETUP.md) for the full bootstrap guide.
 
-- Node.js 22+
-- A [Cloudflare account](https://dash.cloudflare.com/sign-up)
-- Wrangler authenticated: `npx wrangler login`
-
-### Local development
+Quick start for local dev:
 
 ```bash
 npm install
-
-# Create the D1 database (first time only)
-npx wrangler d1 create grocery-store-db
-# Copy the database_id into wrangler.toml
-
-# Create .dev.vars with your local credentials
-cat > .dev.vars <<EOF
-DEV_TOKEN=some-local-secret
-DEV_USER_ID=usr_local
-EOF
-
-# Apply migrations and start the dev server
+cd frontend && npm install && cd ..
 npm run migrate:local
+
+# Terminal 1
 npm run dev
+
+# Terminal 2
+cd frontend && npm run dev
 ```
 
-Test it:
-```bash
-curl -s http://localhost:8787/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Dev-Token: some-local-secret" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-### Using the local server with Claude Code
-
-You can connect Claude Code directly to the local dev server instead of using curl.
-
-1. Start the dev server: `npm run dev`
-2. Copy the example config: `cp .mcp.json.example .mcp.json`
-3. Edit `.mcp.json` and replace the placeholder with your `DEV_TOKEN` from `.dev.vars`
-4. Restart Claude Code (or run `/mcp` to reload) — it picks up `.mcp.json` automatically
-
-The `grocery-store` server will appear in your MCP server list. Claude can then call pantry and meal planning tools directly against your local D1 database.
-
-`.mcp.json` is gitignored because it contains your dev token. `.mcp.json.example` is the committed template.
+You'll need a GitHub OAuth App and a few secrets in `.dev.vars` and `frontend/.env.local` — see SETUP.md step 2–4.
 
 ### Tests
 
 ```bash
 npm test           # single pass
 npm run test:watch # watch mode
-npm run typecheck  # type-check src + test
+npm run typecheck  # type-check Worker + test
+cd frontend && npm run typecheck  # type-check frontend
 ```
-
-Tests run in a real Workers runtime (Miniflare) with an in-memory D1 database — no network, no Cloudflare account needed.
-
-### Deploy
-
-```bash
-npm run deploy
-
-# Set production secrets
-npx wrangler secret put GITHUB_CLIENT_ID
-npx wrangler secret put GITHUB_CLIENT_SECRET
-npx wrangler secret put JWT_SECRET
-```
-
-See [SETUP.md](./SETUP.md) for the full bootstrap guide including GitHub OAuth App registration and Claude.ai connector setup.
 
 ---
 
 ## Project structure
 
 ```
-src/
-  index.ts              # Worker entry point
+src/                        # Cloudflare Worker
+  index.ts                  # Entry point, routing, CORS
   mcp/
-    server.ts           # MCP protocol handler (JSON-RPC 2.0)
+    server.ts               # MCP protocol handler (JSON-RPC 2.0)
     tools/
-      pantry.ts         # Pantry tool definitions + handlers
-      meals.ts          # Meal planning tool definitions + handlers
+      pantry.ts             # Pantry tool definitions + handlers
+      meals.ts              # Meal planning tool definitions + handlers
   auth/
-    middleware.ts        # Auth — dev token now, OAuth Phase 2
+    middleware.ts           # Bearer JWT + dev token auth
+    oauth.ts                # GitHub OAuth 2.1 + PKCE server
+    jwt.ts                  # JWT sign/verify
   db/
-    schema.sql          # Canonical D1 schema
-    queries.ts          # Typed query helpers
-  types.ts              # Shared types
-migrations/             # Wrangler D1 migration files
-test/
-  mcp.test.ts           # Integration tests (17 tests)
+    schema.sql              # Canonical D1 schema
+    queries.ts              # Typed query helpers
+    oauth.ts                # OAuth table queries
+  types.ts                  # Worker types (re-exports shared types + Env)
+types/
+  shared.ts                 # Data types shared between Worker and frontend
+frontend/                   # Cloudflare Pages SPA (Preact + Vite)
+  src/
+    auth.ts                 # Browser PKCE OAuth flow
+    api.ts                  # MCP transport abstraction
+    App.tsx                 # Root component, routing
+    views/
+      Pantry.tsx            # Pantry table view
+      MealPlan.tsx          # FullCalendar meal plan view
+migrations/                 # Wrangler D1 migration files
+test/                       # Integration tests (Miniflare + Vitest)
+.github/workflows/
+  ci.yml                    # Typecheck + test on push/PR
+  deploy-prod.yml           # Worker production deploy (manual)
+  deploy-pages.yml          # Frontend production deploy (manual)
+  deploy-staging.yml        # Sequential staging deploy: Worker then Pages (manual)
 ```
 
 ---
@@ -139,5 +117,5 @@ test/
 ## Roadmap
 
 - [x] Phase 1 — Core MCP server with pantry + meal planning tools
-- [ ] Phase 2 — GitHub OAuth 2.1 (required for Claude.ai integration)
+- [x] Phase 2 — GitHub OAuth 2.1 + browser frontend
 - [ ] Phase 3 — `meal_plan_suggest` tool (suggest meals from pantry contents)
