@@ -13,13 +13,6 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Ensure branch is up to date with main
-        run: |
-          git fetch origin main
-          git merge --no-edit origin/main
 
       - uses: actions/setup-node@v4
         with:
@@ -44,13 +37,6 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Ensure branch is up to date with main
-        run: |
-          git fetch origin main
-          git merge --no-edit origin/main
 
       - uses: actions/setup-node@v4
         with:
