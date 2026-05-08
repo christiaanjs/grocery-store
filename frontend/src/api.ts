@@ -1,8 +1,9 @@
 import { getValidToken, clearTokens } from "./auth.ts";
-export type { PantryItem, MealIngredient, MealEntry, MealEntryData } from "../../types/shared.ts";
-import type { PantryItem, MealEntry, MealEntryData } from "../../types/shared.ts";
+export type { PantryItem, MealIngredient, MealEntryData } from "../../types/shared.ts";
+import type { PantryItem, MealEntryData } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
+
 
 // ── Transport ─────────────────────────────────────────────────────────────
 
@@ -92,10 +93,10 @@ export const bulkUpdatePantry = (
 ) => mcpCall<PantryItem[]>("pantry_bulk_update", { items });
 
 export const getMealPlan = (dateFrom: string, dateTo: string) =>
-  mcpCall<MealEntry[]>("meal_plan_get", { date_from: dateFrom, date_to: dateTo });
+  mcpCall<MealEntryData[]>("meal_plan_get", { date_from: dateFrom, date_to: dateTo });
 
 export const setMeals = (meals: MealEntryData[]) =>
-  mcpCall<MealEntry[]>("meal_plan_set", { meals });
+  mcpCall<MealEntryData[]>("meal_plan_set", { meals });
 
 export const deleteMeals = (dates: string[]) =>
   mcpCall<void>("meal_plan_delete", { dates });

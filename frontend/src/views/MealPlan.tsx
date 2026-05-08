@@ -7,15 +7,18 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventInput, EventDropArg } from "@fullcalendar/core";
-import { getMealPlan, setMeals, deleteMeals, type MealEntry, type MealIngredient } from "../api.ts";
+import { getMealPlan, setMeals, deleteMeals, type MealEntryData, type MealIngredient } from "../api.ts";
+import { replaceUrl, inferInitialView, localDateStr } from "../hooks/useUrlState.ts";
 
 interface Props {
   onAuthError: (err: unknown) => void;
+  initialFrom?: string;
+  initialTo?: string;
 }
 
 interface ModalState {
   date: string;
-  existing: MealEntry | null;
+  existing: MealEntryData | null;
 }
 
 interface FormIngredient {
@@ -24,7 +27,7 @@ interface FormIngredient {
   unit: string;
 }
 
-function toCalendarEvents(meals: MealEntry[]): EventInput[] {
+function toCalendarEvents(meals: MealEntryData[]): EventInput[] {
   return meals.map(m => ({
     id: m.date,
     title: m.name,
@@ -34,14 +37,23 @@ function toCalendarEvents(meals: MealEntry[]): EventInput[] {
   }));
 }
 
-export function MealPlan({ onAuthError }: Props) {
-  const [meals, setMealsState] = useState<MealEntry[]>([]);
+export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
+  const [meals, setMealsState] = useState<MealEntryData[]>([]);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // ── Load meals whenever the visible date range changes ─────────────────
 
-  async function onDatesSet({ startStr, endStr }: DatesSetArg) {
+  async function onDatesSet({ startStr, endStr, view }: DatesSetArg) {
+    // Use currentStart/currentEnd (canonical month/week boundary) for the URL so refreshing
+    // doesn't drift backwards via FullCalendar's overflow padding days.
+    replaceUrl({
+      tab: "meals",
+      filter: "all",
+      search: "",
+      from: localDateStr(view.currentStart),
+      to: localDateStr(view.currentEnd),
+    });
     setError(null);
     try {
       const data = await getMealPlan(startStr.slice(0, 10), endStr.slice(0, 10));
@@ -57,7 +69,7 @@ export function MealPlan({ onAuthError }: Props) {
   async function onEventDrop({ event, oldEvent, revert }: EventDropArg) {
     const newDate = event.startStr.slice(0, 10);
     const oldDate = (oldEvent.startStr ?? "").slice(0, 10);
-    const draggedMeal = (event.extendedProps as { meal: MealEntry }).meal;
+    const draggedMeal = (event.extendedProps as { meal: MealEntryData }).meal;
     const occupant = meals.find(m => m.date === newDate && m.date !== oldDate);
 
     try {
@@ -66,10 +78,8 @@ export function MealPlan({ onAuthError }: Props) {
       updates.push({
         date: newDate,
         name: draggedMeal.name,
-        ingredients: draggedMeal.ingredients
-          ? (JSON.parse(draggedMeal.ingredients) as MealIngredient[])
-          : undefined,
-        steps: draggedMeal.steps ? (JSON.parse(draggedMeal.steps) as string[]) : undefined,
+        ingredients: draggedMeal.ingredients,
+        steps: draggedMeal.steps,
       });
 
       if (occupant) {
@@ -77,10 +87,8 @@ export function MealPlan({ onAuthError }: Props) {
         updates.push({
           date: oldDate,
           name: occupant.name,
-          ingredients: occupant.ingredients
-            ? (JSON.parse(occupant.ingredients) as MealIngredient[])
-            : undefined,
-          steps: occupant.steps ? (JSON.parse(occupant.steps) as string[]) : undefined,
+          ingredients: occupant.ingredients,
+          steps: occupant.steps,
         });
       } else {
         // Pure move: clear the old date
@@ -109,7 +117,7 @@ export function MealPlan({ onAuthError }: Props) {
   }
 
   function onEventClick({ event }: EventClickArg) {
-    const meal = (event.extendedProps as { meal: MealEntry }).meal;
+    const meal = (event.extendedProps as { meal: MealEntryData }).meal;
     setModal({ date: meal.date, existing: meal });
   }
 
@@ -151,7 +159,8 @@ export function MealPlan({ onAuthError }: Props) {
 
       <FullCalendar
         plugins={[dayGridPlugin, interactionPlugin]}
-        initialView="dayGridMonth"
+        initialView={inferInitialView(initialFrom, initialTo)}
+        initialDate={initialFrom}
         headerToolbar={{ left: "prev,next today", center: "title", right: "dayGridMonth,dayGridWeek" }}
         editable={true}
         events={toCalendarEvents(meals)}
@@ -179,7 +188,7 @@ export function MealPlan({ onAuthError }: Props) {
 
 interface MealModalProps {
   date: string;
-  existing: MealEntry | null;
+  existing: MealEntryData | null;
   onSave: (entry: { date: string; name: string; ingredients: MealIngredient[]; steps: string[] }) => void;
   onDelete: (date: string) => void;
   onClose: () => void;
@@ -188,14 +197,12 @@ interface MealModalProps {
 function MealModal({ date, existing, onSave, onDelete, onClose }: MealModalProps) {
   const [name, setName] = useState(existing?.name ?? "");
   const [ingredients, setIngredients] = useState<FormIngredient[]>(() => {
-    if (!existing?.ingredients) return [{ name: "", quantity: "", unit: "" }];
-    const parsed = JSON.parse(existing.ingredients) as MealIngredient[];
-    return parsed.map(i => ({ name: i.name, quantity: i.quantity != null ? String(i.quantity) : "", unit: i.unit ?? "" }));
+    if (!existing?.ingredients?.length) return [{ name: "", quantity: "", unit: "" }];
+    return existing.ingredients.map(i => ({ name: i.name, quantity: i.quantity != null ? String(i.quantity) : "", unit: i.unit ?? "" }));
   });
   const [steps, setSteps] = useState(() => {
-    if (!existing?.steps) return "";
-    const parsed = JSON.parse(existing.steps) as string[];
-    return parsed.join("\n");
+    if (!existing?.steps?.length) return "";
+    return existing.steps.join("\n");
   });
 
   function handleSave() {

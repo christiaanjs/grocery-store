@@ -28,16 +28,7 @@ export interface MealIngredient {
   unit?: string;
 }
 
-export interface MealEntry {
-  id: string;
-  household_id: string;
-  date: string;          // ISO date
-  name: string;
-  ingredients: string | null;  // JSON-encoded MealIngredient[]
-  steps: string | null;        // JSON-encoded string[]
-  created_at: number;
-}
-
+// Shared between Worker and frontend — ingredients/steps are already parsed.
 export interface MealEntryData {
   date: string;
   name: string;

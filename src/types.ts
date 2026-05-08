@@ -1,4 +1,15 @@
-export type { User, Household, PantryItem, MealIngredient, MealEntry, MealEntryData } from "../types/shared.ts";
+export type { User, Household, PantryItem, MealIngredient, MealEntryData } from "../types/shared.ts";
+
+// Maps directly to the meal_entries D1 row — ingredients/steps are raw JSON strings.
+export interface MealEntry {
+  id: string;
+  household_id: string;
+  date: string;
+  name: string;
+  ingredients: string | null;
+  steps: string | null;
+  created_at: number;
+}
 
 // Worker environment bindings
 export interface Env {

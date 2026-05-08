@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { MealEntry, PantryItem } from "../../types/shared.ts";
+import type { MealEntryData, PantryItem } from "../../types/shared.ts";
 
 vi.mock("./auth.ts", () => ({
   getValidToken: vi.fn().mockResolvedValue("test-token"),
@@ -44,8 +44,8 @@ describe("getMealPlan", () => {
   });
 
   it("returns the meals array when meals exist", async () => {
-    const meals: Partial<MealEntry>[] = [
-      { id: "1", date: "2026-05-07", name: "Pasta carbonara", ingredients: null, steps: null },
+    const meals: MealEntryData[] = [
+      { date: "2026-05-07", name: "Pasta carbonara" },
     ];
     mockFetch(mcpOk(JSON.stringify(meals)));
     const result = await getMealPlan("2026-05-01", "2026-05-07");

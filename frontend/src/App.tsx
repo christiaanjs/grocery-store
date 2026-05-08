@@ -3,15 +3,20 @@ import { getAccessToken, startLogin, handleCallback, clearTokens } from "./auth.
 import { AuthError } from "./api.ts";
 import { Pantry } from "./views/Pantry.tsx";
 import { MealPlan } from "./views/MealPlan.tsx";
-
-type Tab = "pantry" | "meals";
+import { parseUrl, pushUrl, type Tab, type Filter, type UrlState } from "./hooks/useUrlState.ts";
 
 const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN as string | undefined;
 
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null); // null = loading
-  const [tab, setTab] = useState<Tab>("pantry");
   const [callbackError, setCallbackError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<Tab>(() => parseUrl().tab);
+  const [initialFilter, setInitialFilter] = useState<Filter>(() => parseUrl().filter);
+  const [initialSearch, setInitialSearch] = useState<string>(() => parseUrl().search);
+  const [initialFrom, setInitialFrom] = useState<string | undefined>(() => parseUrl().from);
+  const [initialTo, setInitialTo] = useState<string | undefined>(() => parseUrl().to);
+  const [viewKey, setViewKey] = useState(0);
 
   useEffect(() => {
     // Dev token bypasses OAuth entirely — no GitHub login required
@@ -25,7 +30,7 @@ export function App() {
     if (location.pathname === "/callback") {
       handleCallback(params)
         .then(() => {
-          history.replaceState(null, "", "/");
+          history.replaceState(null, "", "/pantry");
           setAuthed(true);
         })
         .catch((err: unknown) => {
@@ -38,6 +43,31 @@ export function App() {
 
     setAuthed(!!getAccessToken());
   }, []);
+
+  useEffect(() => {
+    function onPop(e: PopStateEvent) {
+      const s = (e.state as UrlState | null) ?? parseUrl();
+      setTab(s.tab);
+      setInitialFilter(s.filter);
+      setInitialSearch(s.search);
+      setInitialFrom(s.from);
+      setInitialTo(s.to);
+      setViewKey(k => k + 1);
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function switchTab(t: Tab) {
+    setTab(t);
+    pushUrl({
+      tab: t,
+      filter: t === "pantry" ? initialFilter : "all",
+      search: t === "pantry" ? initialSearch : "",
+      from: t === "meals" ? initialFrom : undefined,
+      to: t === "meals" ? initialTo : undefined,
+    });
+  }
 
   function onAuthError(err: unknown) {
     if (err instanceof AuthError) {
@@ -65,10 +95,10 @@ export function App() {
       <header class="app-header">
         <h1>Grocery Store</h1>
         <nav class="tab-bar">
-          <button class={tab === "pantry" ? "active" : ""} onClick={() => setTab("pantry")}>
+          <button class={tab === "pantry" ? "active" : ""} onClick={() => switchTab("pantry")}>
             Pantry
           </button>
-          <button class={tab === "meals" ? "active" : ""} onClick={() => setTab("meals")}>
+          <button class={tab === "meals" ? "active" : ""} onClick={() => switchTab("meals")}>
             Meal Plan
           </button>
         </nav>
@@ -86,8 +116,22 @@ export function App() {
         )}
       </header>
       <main class="app-main">
-        {tab === "pantry" && <Pantry onAuthError={onAuthError} />}
-        {tab === "meals" && <MealPlan onAuthError={onAuthError} />}
+        {tab === "pantry" && (
+          <Pantry
+            key={viewKey}
+            initialFilter={initialFilter}
+            initialSearch={initialSearch}
+            onAuthError={onAuthError}
+          />
+        )}
+        {tab === "meals" && (
+          <MealPlan
+            key={viewKey}
+            initialFrom={initialFrom}
+            initialTo={initialTo}
+            onAuthError={onAuthError}
+          />
+        )}
       </main>
     </>
   );

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "preact/hooks";
 import { listPantryItems, updatePantryItem, markItemsOut, type PantryItem } from "../api.ts";
-
-type Filter = "all" | "in_stock" | "out_of_stock";
+import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
 interface EditState {
   name: string;
@@ -12,13 +11,15 @@ interface EditState {
 
 interface Props {
   onAuthError: (err: unknown) => void;
+  initialFilter?: Filter;
+  initialSearch?: string;
 }
 
-export function Pantry({ onAuthError }: Props) {
+export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   const [items, setItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
+  const [search, setSearch] = useState(initialSearch ?? "");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -44,6 +45,10 @@ export function Pantry({ onAuthError }: Props) {
   }
 
   useEffect(() => { void load(); }, [filter]);
+
+  useEffect(() => {
+    replaceUrl({ tab: "pantry", filter, search, from: undefined, to: undefined });
+  }, [filter, search]);
 
   function startEdit(item: PantryItem) {
     setEditingId(item.id);
