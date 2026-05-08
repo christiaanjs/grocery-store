@@ -164,7 +164,7 @@ export async function handleMealTool(
       const { dateFrom, dateTo } = parseDateRange(args);
       const rows = await getMealEntries(db, householdId, dateFrom, dateTo);
       if (rows.length === 0) {
-        return { content: [{ type: "text", text: `No meals found between ${dateFrom} and ${dateTo}` }] };
+        return { content: [{ type: "text", text: "[]" }] };
       }
       return {
         content: [{ type: "text", text: JSON.stringify(rows.map(toEntryData), null, 2) }],
@@ -199,7 +199,7 @@ export async function handleMealTool(
       }
       const dates = (args["dates"] as unknown[]).filter((d): d is string => typeof d === "string");
       const count = await deleteMealEntries(db, householdId, dates);
-      return { content: [{ type: "text", text: `Deleted ${count} meal entry/entries` }] };
+      return { content: [{ type: "text", text: JSON.stringify({ deleted: count }) }] };
     }
 
     default:

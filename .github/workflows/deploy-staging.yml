@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  worker:
     runs-on: ubuntu-latest
     environment: staging
     steps:
@@ -26,7 +26,34 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      - name: Deploy to staging
+      - name: Deploy Worker to staging
         run: npx wrangler deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  pages:
+    needs: worker
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_WORKER_URL: https://grocery-store-staging.grocery-store.workers.dev
+
+      - name: Deploy Pages to staging
+        run: npx wrangler pages deploy frontend/dist --project-name=grocery-store-frontend-staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

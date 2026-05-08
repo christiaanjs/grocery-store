@@ -11,6 +11,7 @@ export default defineConfig(async () => {
         wrangler: { configPath: "./wrangler.toml" },
         miniflare: {
           bindings: {
+            ENABLE_DEV_AUTH: "true",
             DEV_TOKEN: "test-token",
             DEV_USER_ID: "usr_test",
             // Enable OAuth and provide secrets for the test environment

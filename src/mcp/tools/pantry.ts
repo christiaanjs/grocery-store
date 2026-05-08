@@ -106,7 +106,7 @@ export async function handlePantryTool(
       }
       const names = (args["names"] as unknown[]).filter((n): n is string => typeof n === "string");
       const count = await markPantryItemsOut(db, householdId, names);
-      return { content: [{ type: "text", text: `Marked ${count} item(s) as out of stock` }] };
+      return { content: [{ type: "text", text: JSON.stringify({ marked_out: count }) }] };
     }
 
     case "pantry_bulk_update": {
@@ -129,7 +129,7 @@ export async function handlePantryTool(
             }),
           ),
       );
-      return { content: [{ type: "text", text: `Updated ${results.length} item(s)` }] };
+      return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
     }
 
     default:
