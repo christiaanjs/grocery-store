@@ -3,7 +3,7 @@ const STORAGE_KEY_CLIENT = "oauth_client_id";
 const STORAGE_KEY_ACCESS = "oauth_access_token";
 const STORAGE_KEY_REFRESH = "oauth_refresh_token";
 const STORAGE_KEY_EXP = "oauth_exp";
-const SESSION_KEY_VERIFIER = "oauth_code_verifier";
+const STORAGE_KEY_VERIFIER = "oauth_code_verifier";
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ export function clearTokens() {
   localStorage.removeItem(STORAGE_KEY_ACCESS);
   localStorage.removeItem(STORAGE_KEY_REFRESH);
   localStorage.removeItem(STORAGE_KEY_EXP);
-  sessionStorage.removeItem(SESSION_KEY_VERIFIER);
+  localStorage.removeItem(STORAGE_KEY_VERIFIER);
 }
 
 function isExpiringSoon(): boolean {
@@ -110,7 +110,7 @@ export async function startLogin() {
   const clientId = await ensureClientId();
   const verifier = await generateCodeVerifier();
   const challenge = await codeChallenge(verifier);
-  sessionStorage.setItem(SESSION_KEY_VERIFIER, verifier);
+  localStorage.setItem(STORAGE_KEY_VERIFIER, verifier);
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -128,8 +128,8 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<voi
   const code = searchParams.get("code");
   if (!code) throw new Error("No code in callback URL");
 
-  const verifier = sessionStorage.getItem(SESSION_KEY_VERIFIER);
-  if (!verifier) throw new Error("No code_verifier in session — callback arrived without a prior login attempt");
+  const verifier = localStorage.getItem(STORAGE_KEY_VERIFIER);
+  if (!verifier) throw new Error("No code_verifier found — please start the login flow again");
 
   const clientId = localStorage.getItem(STORAGE_KEY_CLIENT);
   if (!clientId) throw new Error("No client_id stored");
@@ -159,7 +159,7 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<voi
     expires_in: number;
   };
   storeTokens(data.access_token, data.refresh_token, data.expires_in);
-  sessionStorage.removeItem(SESSION_KEY_VERIFIER);
+  localStorage.removeItem(STORAGE_KEY_VERIFIER);
 }
 
 // ── Token getter with auto-refresh ───────────────────────────────────────
