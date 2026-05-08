@@ -1,42 +1,8 @@
 import { getValidToken, clearTokens } from "./auth.ts";
+export type { PantryItem, MealIngredient, MealEntry, MealEntryData } from "../../types/shared.ts";
+import type { PantryItem, MealEntry, MealEntryData } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
-
-// ── Types mirrored from the Worker ───────────────────────────────────────
-
-export interface PantryItem {
-  id: string;
-  household_id: string;
-  name: string;
-  category: string | null;
-  quantity: number | null;
-  unit: string | null;
-  in_stock: 0 | 1;
-  updated_at: number;
-}
-
-export interface MealIngredient {
-  name: string;
-  quantity?: number;
-  unit?: string;
-}
-
-export interface MealEntry {
-  id: string;
-  household_id: string;
-  date: string;
-  name: string;
-  ingredients: string | null;
-  steps: string | null;
-  created_at: number;
-}
-
-export interface MealEntryData {
-  date: string;
-  name: string;
-  ingredients?: MealIngredient[];
-  steps?: string[];
-}
 
 // ── Transport ─────────────────────────────────────────────────────────────
 
