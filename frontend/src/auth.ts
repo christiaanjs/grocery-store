@@ -1,9 +1,61 @@
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
-const STORAGE_KEY_CLIENT = "oauth_client_id";
-const STORAGE_KEY_ACCESS = "oauth_access_token";
-const STORAGE_KEY_REFRESH = "oauth_refresh_token";
-const STORAGE_KEY_EXP = "oauth_exp";
-const STORAGE_KEY_VERIFIER = "oauth_code_verifier";
+const COOKIE_CLIENT = "oauth_client_id";
+const COOKIE_ACCESS = "oauth_access_token";
+const COOKIE_REFRESH = "oauth_refresh_token";
+const COOKIE_EXP = "oauth_exp";
+const COOKIE_VERIFIER = "oauth_code_verifier";
+
+const REFRESH_TTL = 30 * 24 * 3600; // 30 days in seconds
+const CLIENT_TTL = 365 * 24 * 3600; // 1 year
+const VERIFIER_TTL = 900; // 15 minutes
+
+// ── Cookie helpers ────────────────────────────────────────────────────────
+
+// Cookies are shared between iOS home screen apps and Safari at the same origin,
+// unlike localStorage/sessionStorage which are isolated per context on iOS.
+const _secure = location.protocol === "https:" ? "; Secure" : "";
+
+function setCookie(name: string, value: string, maxAgeSec: number) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=${maxAgeSec}; path=/; SameSite=Lax${_secure}`;
+}
+
+function getCookie(name: string): string | null {
+  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+
+function deleteCookie(name: string) {
+  document.cookie = `${name}=; max-age=0; path=/`;
+}
+
+// One-time migration: move any pre-existing tokens from localStorage into cookies.
+// Needed so users who logged in before this update don't lose their session.
+(function migrateFromLocalStorage() {
+  const legacyAccess = localStorage.getItem("oauth_access_token");
+  if (!legacyAccess || getCookie(COOKIE_ACCESS)) return;
+
+  const legacyRefresh = localStorage.getItem("oauth_refresh_token");
+  const legacyExp = localStorage.getItem("oauth_exp");
+  const legacyClient = localStorage.getItem("oauth_client_id");
+
+  setCookie(COOKIE_ACCESS, legacyAccess, 3600);
+  if (legacyRefresh) setCookie(COOKIE_REFRESH, legacyRefresh, REFRESH_TTL);
+  if (legacyExp) setCookie(COOKIE_EXP, legacyExp, REFRESH_TTL);
+  if (legacyClient) setCookie(COOKIE_CLIENT, legacyClient, CLIENT_TTL);
+
+  ["oauth_access_token", "oauth_refresh_token", "oauth_exp", "oauth_client_id", "oauth_code_verifier"].forEach(
+    k => localStorage.removeItem(k)
+  );
+})();
+
+// ── Standalone detection ──────────────────────────────────────────────────
+
+export function isStandalone(): boolean {
+  return Boolean(
+    (navigator as { standalone?: boolean }).standalone ||
+    window.matchMedia("(display-mode: standalone)").matches,
+  );
+}
 
 // ── PKCE helpers ──────────────────────────────────────────────────────────
 
@@ -28,7 +80,7 @@ async function codeChallenge(verifier: string): Promise<string> {
 // ── DCR ───────────────────────────────────────────────────────────────────
 
 async function ensureClientId(): Promise<string> {
-  let clientId = localStorage.getItem(STORAGE_KEY_CLIENT);
+  let clientId = getCookie(COOKIE_CLIENT);
   if (clientId) return clientId;
 
   const res = await fetch(`${WORKER_BASE}/register`, {
@@ -41,31 +93,31 @@ async function ensureClientId(): Promise<string> {
   if (!res.ok) throw new Error(`DCR failed: ${res.status}`);
   const data = (await res.json()) as { client_id: string };
   clientId = data.client_id;
-  localStorage.setItem(STORAGE_KEY_CLIENT, clientId);
+  setCookie(COOKIE_CLIENT, clientId, CLIENT_TTL);
   return clientId;
 }
 
 // ── Token storage ─────────────────────────────────────────────────────────
 
 export function getAccessToken(): string | null {
-  return localStorage.getItem(STORAGE_KEY_ACCESS);
+  return getCookie(COOKIE_ACCESS);
 }
 
 function storeTokens(accessToken: string, refreshToken: string, expiresIn: number) {
-  localStorage.setItem(STORAGE_KEY_ACCESS, accessToken);
-  localStorage.setItem(STORAGE_KEY_REFRESH, refreshToken);
-  localStorage.setItem(STORAGE_KEY_EXP, String(Date.now() + expiresIn * 1000));
+  setCookie(COOKIE_ACCESS, accessToken, expiresIn);
+  setCookie(COOKIE_REFRESH, refreshToken, REFRESH_TTL);
+  setCookie(COOKIE_EXP, String(Date.now() + expiresIn * 1000), REFRESH_TTL);
 }
 
 export function clearTokens() {
-  localStorage.removeItem(STORAGE_KEY_ACCESS);
-  localStorage.removeItem(STORAGE_KEY_REFRESH);
-  localStorage.removeItem(STORAGE_KEY_EXP);
-  localStorage.removeItem(STORAGE_KEY_VERIFIER);
+  deleteCookie(COOKIE_ACCESS);
+  deleteCookie(COOKIE_REFRESH);
+  deleteCookie(COOKIE_EXP);
+  deleteCookie(COOKIE_VERIFIER);
 }
 
 function isExpiringSoon(): boolean {
-  const exp = localStorage.getItem(STORAGE_KEY_EXP);
+  const exp = getCookie(COOKIE_EXP);
   if (!exp) return true;
   return Date.now() > Number(exp) - 5 * 60 * 1000; // 5 min buffer
 }
@@ -73,8 +125,8 @@ function isExpiringSoon(): boolean {
 // ── Refresh ───────────────────────────────────────────────────────────────
 
 async function refreshAccessToken(): Promise<boolean> {
-  const refreshToken = localStorage.getItem(STORAGE_KEY_REFRESH);
-  const clientId = localStorage.getItem(STORAGE_KEY_CLIENT);
+  const refreshToken = getCookie(COOKIE_REFRESH);
+  const clientId = getCookie(COOKIE_CLIENT);
   if (!refreshToken || !clientId) return false;
 
   const params = new URLSearchParams({
@@ -110,7 +162,7 @@ export async function startLogin() {
   const clientId = await ensureClientId();
   const verifier = await generateCodeVerifier();
   const challenge = await codeChallenge(verifier);
-  localStorage.setItem(STORAGE_KEY_VERIFIER, verifier);
+  setCookie(COOKIE_VERIFIER, verifier, VERIFIER_TTL);
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -128,10 +180,10 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<voi
   const code = searchParams.get("code");
   if (!code) throw new Error("No code in callback URL");
 
-  const verifier = localStorage.getItem(STORAGE_KEY_VERIFIER);
+  const verifier = getCookie(COOKIE_VERIFIER);
   if (!verifier) throw new Error("No code_verifier found — please start the login flow again");
 
-  const clientId = localStorage.getItem(STORAGE_KEY_CLIENT);
+  const clientId = getCookie(COOKIE_CLIENT);
   if (!clientId) throw new Error("No client_id stored");
 
   const params = new URLSearchParams({
@@ -159,16 +211,17 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<voi
     expires_in: number;
   };
   storeTokens(data.access_token, data.refresh_token, data.expires_in);
-  localStorage.removeItem(STORAGE_KEY_VERIFIER);
+  deleteCookie(COOKIE_VERIFIER);
 }
 
 // ── Token getter with auto-refresh ───────────────────────────────────────
 
 export async function getValidToken(): Promise<string | null> {
-  if (!getAccessToken()) return null;
-  if (isExpiringSoon()) {
+  const token = getAccessToken();
+  // Try to refresh if absent (e.g. cookie expired after 1 h) or expiring soon
+  if (!token || isExpiringSoon()) {
     const ok = await refreshAccessToken();
-    if (!ok) return null;
+    return ok ? getAccessToken() : null;
   }
-  return getAccessToken();
+  return token;
 }

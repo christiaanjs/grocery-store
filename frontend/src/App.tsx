@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import { getAccessToken, startLogin, handleCallback, clearTokens } from "./auth.ts";
+import { getAccessToken, startLogin, handleCallback, clearTokens, isStandalone } from "./auth.ts";
 import { AuthError } from "./api.ts";
 import { Pantry } from "./views/Pantry.tsx";
 import { MealPlan } from "./views/MealPlan.tsx";
@@ -10,6 +10,7 @@ const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN as string | undefined;
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null); // null = loading
   const [callbackError, setCallbackError] = useState<string | null>(null);
+  const [returnToApp, setReturnToApp] = useState(false);
 
   const [tab, setTab] = useState<Tab>(() => parseUrl().tab);
   const [initialFilter, setInitialFilter] = useState<Filter>(() => parseUrl().filter);
@@ -30,8 +31,16 @@ export function App() {
     if (location.pathname === "/callback") {
       handleCallback(params)
         .then(() => {
-          history.replaceState(null, "", "/pantry");
-          setAuthed(true);
+          // On iOS, the callback may arrive in Safari (not the standalone PWA).
+          // Tokens are now in shared cookies, so the PWA will find them when
+          // the user switches back. Show a prompt instead of rendering the app.
+          const onIOS = /iPhone|iPad/.test(navigator.userAgent);
+          if (onIOS && !isStandalone()) {
+            setReturnToApp(true);
+          } else {
+            history.replaceState(null, "", "/pantry");
+            setAuthed(true);
+          }
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : "Auth failed";
@@ -43,6 +52,21 @@ export function App() {
 
     setAuthed(!!getAccessToken());
   }, []);
+
+  // Re-check auth when the PWA comes back to foreground (e.g. after completing
+  // GitHub OAuth in Safari on iOS — tokens are stored in shared cookies).
+  useEffect(() => {
+    if (authed !== false) return;
+    function checkForTokens() {
+      if (!document.hidden && getAccessToken()) setAuthed(true);
+    }
+    document.addEventListener("visibilitychange", checkForTokens);
+    window.addEventListener("pageshow", checkForTokens);
+    return () => {
+      document.removeEventListener("visibilitychange", checkForTokens);
+      window.removeEventListener("pageshow", checkForTokens);
+    };
+  }, [authed]);
 
   useEffect(() => {
     function onPop(e: PopStateEvent) {
@@ -76,7 +100,16 @@ export function App() {
     }
   }
 
-  if (authed === null) return <div class="loading">Loading…</div>;
+  if (authed === null && !returnToApp) return <div class="loading">Loading…</div>;
+
+  if (returnToApp) {
+    return (
+      <div class="login-screen">
+        <h2>Grocery Store</h2>
+        <p>You're signed in! Open the Grocery Store app from your home screen to continue.</p>
+      </div>
+    );
+  }
 
   if (!authed) {
     return (
