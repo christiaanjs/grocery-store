@@ -47,7 +47,7 @@ ALLOWED_ORIGIN=http://localhost:5173
 
 `ENABLE_DEV_AUTH`, `DEV_TOKEN`, and `DEV_USER_ID` are optional — only needed for curl testing or to use `VITE_DEV_TOKEN` in the browser frontend. `ENABLE_DEV_AUTH` is intentionally absent from `wrangler.toml` so the dev token path is dead in production even if `DEV_TOKEN` is accidentally set as a secret.
 
-### 4. Create `frontend/.env.local`
+### 4. Create `frontend/.env.development.local`
 
 ```
 VITE_WORKER_URL=http://localhost:8787
@@ -132,6 +132,54 @@ Or trigger the `deploy-pages.yml` workflow from GitHub Actions.
 3. Click **Add**, then complete the GitHub OAuth flow
 
 Claude.ai uses Dynamic Client Registration (DCR) — no manual client ID/secret entry needed.
+
+---
+
+## Staging deployment
+
+### First-time setup
+
+Create the Cloudflare Pages project (one-off):
+
+```bash
+npx wrangler pages project create grocery-store-frontend-staging --production-branch=main
+```
+
+Set staging worker secrets:
+
+```bash
+wrangler secret put GITHUB_CLIENT_ID --env staging
+wrangler secret put GITHUB_CLIENT_SECRET --env staging
+wrangler secret put JWT_SECRET --env staging    # openssl rand -hex 32
+```
+
+Register a GitHub OAuth App for staging (same steps as production, using the staging worker URL):
+
+| Field | Value |
+|-------|-------|
+| Authorization callback URL | `https://grocery-store-staging.grocery-store.workers.dev/oauth/callback` |
+
+### Deploy via GitHub Actions
+
+Trigger the **Deploy to Staging** workflow from GitHub Actions (manual dispatch). This deploys the worker then the frontend in sequence.
+
+### Deploy locally
+
+Create `frontend/.env.staging.local` (gitignored):
+
+```
+VITE_WORKER_URL=https://grocery-store-staging.grocery-store.workers.dev
+```
+
+Then build and deploy:
+
+```bash
+cd frontend
+npm run build -- --mode staging
+npx wrangler pages deploy dist --project-name=grocery-store-frontend-staging
+```
+
+The `--mode staging` flag tells Vite to load `.env.staging.local` instead of `.env.development.local`, so the correct worker URL gets baked into the bundle without touching your local dev config.
 
 ---
 

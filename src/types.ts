@@ -22,6 +22,7 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   JWT_SECRET: string;
   ALLOWED_ORIGIN: string;
+  ALLOW_ORIGIN_SUBDOMAINS: string;
 }
 
 // ── MCP protocol types ───────────────────────────────────────────────────

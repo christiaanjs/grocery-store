@@ -10,18 +10,32 @@ import {
   handleToken,
 } from "./auth/oauth.ts";
 
-function corsHeaders(origin: string, allowedOrigin: string): Record<string, string> {
-  if (!allowedOrigin || origin !== allowedOrigin) return {};
+function isAllowedOrigin(origin: string, allowedOrigin: string, allowSubdomains: boolean): boolean {
+  if (!allowedOrigin || !origin) return false;
+  if (origin === allowedOrigin) return true;
+  if (!allowSubdomains) return false;
+  try {
+    const allowed = new URL(allowedOrigin);
+    const incoming = new URL(origin);
+    return incoming.protocol === allowed.protocol &&
+      incoming.hostname.endsWith("." + allowed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function corsHeaders(origin: string, env: Env): Record<string, string> {
+  if (!isAllowedOrigin(origin, env.ALLOWED_ORIGIN, env.ALLOW_ORIGIN_SUBDOMAINS === "true")) return {};
   return {
-    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Dev-Token",
     "Access-Control-Max-Age": "86400",
   };
 }
 
-function withCors(response: Response, origin: string, allowedOrigin: string): Response {
-  const headers = corsHeaders(origin, allowedOrigin);
+function withCors(response: Response, origin: string, env: Env): Response {
+  const headers = corsHeaders(origin, env);
   if (Object.keys(headers).length === 0) return response;
   const next = new Response(response.body, response);
   for (const [k, v] of Object.entries(headers)) next.headers.set(k, v);
@@ -36,7 +50,7 @@ export default {
 
     // Handle CORS preflight for cross-origin requests from the frontend
     if (method === "OPTIONS") {
-      const cors = corsHeaders(origin, env.ALLOWED_ORIGIN);
+      const cors = corsHeaders(origin, env);
       if (Object.keys(cors).length > 0) {
         return new Response(null, { status: 204, headers: cors });
       }
@@ -44,31 +58,31 @@ export default {
 
     if (env.ENABLE_OAUTH === "true") {
       if (method === "GET" && pathname === "/.well-known/oauth-protected-resource") {
-        return withCors(handleProtectedResource(request), origin, env.ALLOWED_ORIGIN);
+        return withCors(handleProtectedResource(request), origin, env);
       }
       if (method === "GET" && pathname === "/.well-known/oauth-authorization-server") {
-        return withCors(handleMetadata(request), origin, env.ALLOWED_ORIGIN);
+        return withCors(handleMetadata(request), origin, env);
       }
       if (method === "POST" && pathname === "/register") {
-        return withCors(await handleRegister(request, env), origin, env.ALLOWED_ORIGIN);
+        return withCors(await handleRegister(request, env), origin, env);
       }
       if (method === "GET" && pathname === "/authorize") {
-        return withCors(await handleAuthorize(request, env), origin, env.ALLOWED_ORIGIN);
+        return withCors(await handleAuthorize(request, env), origin, env);
       }
       if (method === "GET" && pathname === "/oauth/callback") {
-        return withCors(await handleCallback(request, env), origin, env.ALLOWED_ORIGIN);
+        return withCors(await handleCallback(request, env), origin, env);
       }
       if (method === "POST" && pathname === "/token") {
-        return withCors(await handleToken(request, env), origin, env.ALLOWED_ORIGIN);
+        return withCors(await handleToken(request, env), origin, env);
       }
     }
 
     if (method === "POST" && pathname === "/mcp") {
       const auth = await authenticate(request, env);
       if (!auth) {
-        return withCors(new Response("Unauthorized", { status: 401 }), origin, env.ALLOWED_ORIGIN);
+        return withCors(new Response("Unauthorized", { status: 401 }), origin, env);
       }
-      return withCors(await handleMcp(request, env, auth.userId), origin, env.ALLOWED_ORIGIN);
+      return withCors(await handleMcp(request, env, auth.userId), origin, env);
     }
 
     if (pathname === "/") {
