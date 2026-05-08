@@ -6,10 +6,12 @@ export interface AuthContext {
 }
 
 export async function authenticate(request: Request, env: Env): Promise<AuthContext | null> {
-  // Phase 1: dev token (curl testing only)
-  const devToken = request.headers.get("X-Dev-Token");
-  if (devToken && devToken === env.DEV_TOKEN) {
-    return { userId: env.DEV_USER_ID };
+  // Dev token — only active when ENABLE_DEV_AUTH is explicitly set (never in production)
+  if (env.ENABLE_DEV_AUTH === "true") {
+    const devToken = request.headers.get("X-Dev-Token");
+    if (devToken && devToken === env.DEV_TOKEN) {
+      return { userId: env.DEV_USER_ID };
+    }
   }
 
   // Phase 2: OAuth JWT Bearer token

@@ -45,7 +45,7 @@ JWT_SECRET=<any random string, min 32 chars — e.g. openssl rand -hex 32>
 ALLOWED_ORIGIN=http://localhost:5173
 ```
 
-`DEV_TOKEN` and `DEV_USER_ID` are still supported for curl-only testing but are not required when using the browser frontend.
+`ENABLE_DEV_AUTH`, `DEV_TOKEN`, and `DEV_USER_ID` are optional — only needed for curl testing or to use `VITE_DEV_TOKEN` in the browser frontend. `ENABLE_DEV_AUTH` is intentionally absent from `wrangler.toml` so the dev token path is dead in production even if `DEV_TOKEN` is accidentally set as a secret.
 
 ### 4. Create `frontend/.env.local`
 
@@ -72,6 +72,7 @@ Open `http://localhost:5173`. Sign in with GitHub and you're good to go.
 If you also want to test with curl, add to `.dev.vars`:
 
 ```
+ENABLE_DEV_AUTH=true
 DEV_TOKEN=any-string-you-choose
 DEV_USER_ID=usr_local
 ```

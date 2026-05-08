@@ -256,7 +256,8 @@ GITHUB_CLIENT_SECRET=<local oauth app>
 JWT_SECRET=<32+ char random string>
 ALLOWED_ORIGIN=http://localhost:5173
 
-# Optional — only needed for curl testing:
+# Optional — enable dev token auth (curl + frontend VITE_DEV_TOKEN):
+ENABLE_DEV_AUTH=true
 DEV_TOKEN=some-local-secret
 DEV_USER_ID=usr_local
 ```

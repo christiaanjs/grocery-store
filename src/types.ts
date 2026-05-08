@@ -6,6 +6,7 @@ export interface Env {
   DEV_TOKEN: string;
   DEV_USER_ID: string;
   ENABLE_OAUTH: string;
+  ENABLE_DEV_AUTH: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   JWT_SECRET: string;
