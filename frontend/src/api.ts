@@ -7,18 +7,23 @@ const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
 // ── Transport ─────────────────────────────────────────────────────────────
 
 async function mcpCall<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const token = await getValidToken();
-  if (!token) {
-    clearTokens();
-    throw new AuthError("Not authenticated");
+  const devToken = import.meta.env.VITE_DEV_TOKEN as string | undefined;
+  const authHeaders: Record<string, string> = {};
+
+  if (devToken) {
+    authHeaders["X-Dev-Token"] = devToken;
+  } else {
+    const token = await getValidToken();
+    if (!token) {
+      clearTokens();
+      throw new AuthError("Not authenticated");
+    }
+    authHeaders["Authorization"] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${WORKER_BASE}/mcp`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: Date.now(),

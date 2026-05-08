@@ -6,12 +6,20 @@ import { MealPlan } from "./views/MealPlan.tsx";
 
 type Tab = "pantry" | "meals";
 
+const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN as string | undefined;
+
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null); // null = loading
   const [tab, setTab] = useState<Tab>("pantry");
   const [callbackError, setCallbackError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Dev token bypasses OAuth entirely — no GitHub login required
+    if (DEV_TOKEN) {
+      setAuthed(true);
+      return;
+    }
+
     const params = new URLSearchParams(location.search);
 
     if (location.pathname === "/callback") {
@@ -65,15 +73,17 @@ export function App() {
           </button>
         </nav>
         <div class="spacer" />
-        <button
-          class="sign-out-btn"
-          onClick={() => {
-            clearTokens();
-            setAuthed(false);
-          }}
-        >
-          Sign out
-        </button>
+        {!DEV_TOKEN && (
+          <button
+            class="sign-out-btn"
+            onClick={() => {
+              clearTokens();
+              setAuthed(false);
+            }}
+          >
+            Sign out
+          </button>
+        )}
       </header>
       <main class="app-main">
         {tab === "pantry" && <Pantry onAuthError={onAuthError} />}
