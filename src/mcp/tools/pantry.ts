@@ -1,5 +1,5 @@
 import type { ToolDefinition, ToolResult } from "../../types.ts";
-import { listPantryItems, markPantryItemsOut, upsertPantryItem } from "../../db/queries.ts";
+import { deletePantryItem, listPantryItems, markPantryItemsOut, upsertPantryItem } from "../../db/queries.ts";
 
 export const PANTRY_TOOLS: ToolDefinition[] = [
   {
@@ -44,6 +44,17 @@ export const PANTRY_TOOLS: ToolDefinition[] = [
         },
       },
       required: ["names"],
+    },
+  },
+  {
+    name: "pantry_delete",
+    description: "Permanently delete a pantry item by name",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Name of the item to delete" },
+      },
+      required: ["name"],
     },
   },
   {
@@ -107,6 +118,14 @@ export async function handlePantryTool(
       const names = (args["names"] as unknown[]).filter((n): n is string => typeof n === "string");
       const count = await markPantryItemsOut(db, householdId, names);
       return { content: [{ type: "text", text: JSON.stringify({ marked_out: count }) }] };
+    }
+
+    case "pantry_delete": {
+      if (typeof args["name"] !== "string") {
+        return { content: [{ type: "text", text: "name is required" }], isError: true };
+      }
+      const deleted = await deletePantryItem(db, householdId, args["name"]);
+      return { content: [{ type: "text", text: JSON.stringify({ deleted }) }] };
     }
 
     case "pantry_bulk_update": {
