@@ -70,6 +70,7 @@ describe("tools/list", () => {
       "pantry_list",
       "pantry_update",
       "pantry_mark_out",
+      "pantry_delete",
       "pantry_bulk_update",
       "meal_plan_get",
       "meal_plan_set",
@@ -78,6 +79,7 @@ describe("tools/list", () => {
       "preferences_set",
       "preferences_delete",
       "meal_feedback_set",
+      "meal_feedback_get",
       "meal_search",
     ]);
   });
