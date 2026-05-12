@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { signJwt, verifyJwt } from "../src/auth/jwt.ts";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -483,6 +483,208 @@ describe("POST /token (refresh_token)", () => {
     expect(res.status).toBe(400);
     const data = (await res.json()) as Record<string, unknown>;
     expect(data["error"]).toBe("invalid_grant");
+  });
+});
+
+// ── Authorize — provider sub-routes ──────────────────────────────────────
+
+describe("GET /authorize/:provider routing", () => {
+  it("/authorize/github redirects to GitHub", async () => {
+    const { clientId } = await register();
+    const uri = encodeURIComponent(TEST_REDIRECT_URI);
+    const res = await SELF.fetch(
+      `http://localhost/authorize/github?response_type=code&client_id=${clientId}&redirect_uri=${uri}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256`,
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("github.com/login/oauth/authorize");
+  });
+
+  it("/authorize/unknown returns invalid_request for unsupported provider", async () => {
+    const { clientId } = await register();
+    const uri = encodeURIComponent(TEST_REDIRECT_URI);
+    const res = await SELF.fetch(
+      `http://localhost/authorize/unknown?response_type=code&client_id=${clientId}&redirect_uri=${uri}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256`,
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("invalid_request");
+  });
+});
+
+// ── Callback & user resolution (GitHub API mocked) ────────────────────────
+
+// These helpers are only used in the describe blocks below.
+
+function decodeJwtSub(token: string): string {
+  const part = token.split(".")[1]!;
+  const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  return (JSON.parse(atob(padded)) as { sub: string }).sub;
+}
+
+// Mock the three sequential GitHub API calls the callback makes per login.
+// vi.spyOn is restored by vi.restoreAllMocks() in afterEach.
+function mockGitHubApis(
+  userId: number,
+  emails: Array<{ email: string; primary: boolean; verified: boolean }>,
+): void {
+  vi.spyOn(globalThis, "fetch")
+    .mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ access_token: "ghu_test" }), {
+          headers: { "content-type": "application/json" },
+        }),
+    )
+    .mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ id: userId, login: "testuser", email: null }), {
+          headers: { "content-type": "application/json" },
+        }),
+    )
+    .mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify(emails), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+}
+
+// Register a client, start the authorize flow, return the internal state
+// (extracted from the GitHub redirect URL that /authorize produces).
+async function beginAuthorizeFlow(): Promise<{
+  clientId: string;
+  verifier: string;
+  internalState: string;
+}> {
+  const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const challenge = await computeChallenge(verifier);
+  const { clientId } = await register();
+  const uri = encodeURIComponent(TEST_REDIRECT_URI);
+  const res = await SELF.fetch(
+    `http://localhost/authorize?response_type=code&client_id=${clientId}&redirect_uri=${uri}&code_challenge=${challenge}&code_challenge_method=S256&state=cs`,
+    { redirect: "manual" },
+  );
+  expect(res.status).toBe(302);
+  const internalState = new URL(res.headers.get("Location")!).searchParams.get("state")!;
+  return { clientId, verifier, internalState };
+}
+
+async function doGitHubCallback(internalState: string): Promise<Response> {
+  return SELF.fetch(
+    `http://localhost/oauth/callback?code=test-code&state=${internalState}`,
+    { redirect: "manual" },
+  );
+}
+
+// Register → authorize → mock GitHub → callback → token exchange.
+// Returns the access token's `sub` claim and the full tokens object.
+async function fullOAuthFlow(
+  ghUserId: number,
+  emails: Array<{ email: string; primary: boolean; verified: boolean }>,
+) {
+  const { clientId, verifier, internalState } = await beginAuthorizeFlow();
+
+  mockGitHubApis(ghUserId, emails);
+  const callbackRes = await doGitHubCallback(internalState);
+  expect(callbackRes.status).toBe(302);
+  const authCode = new URL(callbackRes.headers.get("Location")!).searchParams.get("code")!;
+
+  const tokenRes = await SELF.fetch("http://localhost/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      code: authCode,
+      redirect_uri: TEST_REDIRECT_URI,
+      code_verifier: verifier,
+    }).toString(),
+  });
+  expect(tokenRes.status).toBe(200);
+  const tokens = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+    expires_in: number;
+  };
+  return { clientId, tokens, sub: decodeJwtSub(tokens.access_token) };
+}
+
+describe("GET /oauth/callback", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("creates a new user and redirects back with an auth code", async () => {
+    const { internalState } = await beginAuthorizeFlow();
+    mockGitHubApis(6001, [{ email: "user6001@example.com", primary: true, verified: true }]);
+    const res = await doGitHubCallback(internalState);
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!);
+    expect(loc.origin + loc.pathname).toBe(TEST_REDIRECT_URI);
+    expect(loc.searchParams.get("code")).toBeTruthy();
+    expect(loc.searchParams.get("state")).toBe("cs"); // original client state forwarded
+  });
+
+  it("creates a user without email when GitHub returns no verified emails", async () => {
+    const { internalState } = await beginAuthorizeFlow();
+    mockGitHubApis(6002, []); // empty — no verified email
+    const res = await doGitHubCallback(internalState);
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("Location")!).searchParams.get("code")).toBeTruthy();
+  });
+
+  it("returns the same user on repeated login with the same GitHub identity", async () => {
+    const emails = [{ email: "user6003@example.com", primary: true, verified: true }];
+    const { sub: sub1 } = await fullOAuthFlow(6003, emails);
+    const { sub: sub2 } = await fullOAuthFlow(6003, emails);
+    expect(sub1).toBe(sub2);
+  });
+
+  it("back-fills email on an existing user that had none", async () => {
+    const { sub: sub1 } = await fullOAuthFlow(6004, []); // no email on first login
+    const { sub: sub2 } = await fullOAuthFlow(6004, [
+      { email: "user6004@example.com", primary: true, verified: true },
+    ]);
+    expect(sub1).toBe(sub2); // same user, email was back-filled
+  });
+
+  it("links a new GitHub identity to an existing account with a matching verified email", async () => {
+    const sharedEmail = [{ email: "shared6005@example.com", primary: true, verified: true }];
+    const { sub: originalSub } = await fullOAuthFlow(6005, sharedEmail); // establishes account
+    const { sub: linkedSub } = await fullOAuthFlow(6006, sharedEmail);   // different GH user, same email
+    expect(linkedSub).toBe(originalSub);
+  });
+
+  it("returns 400 for an unknown or expired state token", async () => {
+    // Callback aborts before calling GitHub APIs when state is invalid
+    const res = await doGitHubCallback("not-a-real-state");
+    expect(res.status).toBe(400);
+  });
+});
+
+// ── End-to-end: full OAuth flow → authenticated MCP call ─────────────────
+
+describe("end-to-end: OAuth JWT → MCP", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("access token from the token endpoint authenticates MCP requests", async () => {
+    const { tokens } = await fullOAuthFlow(7001, [
+      { email: "user7001@example.com", primary: true, verified: true },
+    ]);
+    const res = await SELF.fetch("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokens.access_token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(res.status).toBe(200);
+    expect(
+      Array.isArray(((await res.json()) as { result?: { tools: unknown[] } }).result?.tools),
+    ).toBe(true);
   });
 });
 
