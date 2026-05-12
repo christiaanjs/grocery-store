@@ -62,7 +62,11 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
 
   async function saveEdit(item: PantryItem) {
     const newName = editState.name.trim() || item.name;
-    const nameChanged = newName !== item.name;
+    const nameChanged = newName.toLowerCase() !== item.name.toLowerCase();
+    if (nameChanged && items.some(i => i.id !== item.id && i.name.toLowerCase() === newName.toLowerCase())) {
+      setError(`An item named "${newName}" already exists`);
+      return;
+    }
     try {
       const updated = await updatePantryItem({
         name: newName,
@@ -72,9 +76,15 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
         in_stock: item.in_stock === 1,
       });
       if (nameChanged) {
-        await deletePantryItem(item.name);
+        const { deleted } = await deletePantryItem(item.name);
+        if (!deleted) {
+          // Old row is gone or already cleaned up — reload to get consistent state
+          void load();
+          setEditingId(null);
+          return;
+        }
       }
-      setItems(prev => prev.map(i => i.id === item.id ? updated : i));
+      setItems(prev => prev.filter(i => i.id !== item.id).concat(updated));
       setEditingId(null);
     } catch (err) {
       onAuthError(err);

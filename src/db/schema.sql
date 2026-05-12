@@ -79,6 +79,7 @@ CREATE INDEX idx_oauth_identities_user ON oauth_identities(user_id);
 CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
+CREATE UNIQUE INDEX idx_pantry_unique_name_household ON pantry_items(household_id, LOWER(name));
 CREATE INDEX idx_meal_entries_household_date ON meal_entries(household_id, date);
 CREATE INDEX idx_preferences_household ON preferences(household_id);
 CREATE INDEX idx_preference_history_household ON preference_history(household_id, preference_key);

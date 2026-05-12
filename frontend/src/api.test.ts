@@ -7,7 +7,7 @@ vi.mock("./auth.ts", () => ({
 }));
 
 import { getValidToken, clearTokens } from "./auth.ts";
-import { getMealPlan, listPantryItems, markItemsOut, AuthError } from "./api.ts";
+import { getMealPlan, listPantryItems, markItemsOut, deletePantryItem, getMealFeedback, setMealFeedback, AuthError } from "./api.ts";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -120,5 +120,91 @@ describe("markItemsOut", () => {
   it("resolves without throwing on success", async () => {
     mockFetch(mcpOk(JSON.stringify({ marked_out: 2 })));
     await expect(markItemsOut(["olive oil", "eggs"])).resolves.not.toThrow();
+  });
+});
+
+// ── deletePantryItem ──────────────────────────────────────────────────────
+
+describe("deletePantryItem", () => {
+  beforeEach(() => {
+    vi.mocked(getValidToken).mockResolvedValue("test-token");
+  });
+
+  it("returns { deleted: true } when item was deleted", async () => {
+    mockFetch(mcpOk(JSON.stringify({ deleted: true })));
+    const result = await deletePantryItem("olive oil");
+    expect(result).toEqual({ deleted: true });
+  });
+
+  it("returns { deleted: false } when item was not found", async () => {
+    mockFetch(mcpOk(JSON.stringify({ deleted: false })));
+    const result = await deletePantryItem("ghost item");
+    expect(result).toEqual({ deleted: false });
+  });
+
+  it("throws when the tool returns isError", async () => {
+    mockFetch(mcpToolError("name is required"));
+    await expect(deletePantryItem("")).rejects.toThrow("name is required");
+  });
+
+  it("throws AuthError on HTTP 401", async () => {
+    mockFetch({}, 401);
+    await expect(deletePantryItem("olive oil")).rejects.toThrow(AuthError);
+  });
+});
+
+// ── getMealFeedback ───────────────────────────────────────────────────────
+
+describe("getMealFeedback", () => {
+  beforeEach(() => {
+    vi.mocked(getValidToken).mockResolvedValue("test-token");
+  });
+
+  it("returns null when no feedback exists", async () => {
+    mockFetch(mcpOk("null"));
+    const result = await getMealFeedback("2026-05-07");
+    expect(result).toBeNull();
+  });
+
+  it("returns feedback when it exists", async () => {
+    const fb = { date: "2026-05-07", rating: 4, notes: "Tasty", tags: ["quick"] };
+    mockFetch(mcpOk(JSON.stringify(fb)));
+    const result = await getMealFeedback("2026-05-07");
+    expect(result).toEqual(fb);
+  });
+
+  it("throws when the tool returns isError", async () => {
+    mockFetch(mcpToolError("date is required"));
+    await expect(getMealFeedback("")).rejects.toThrow("date is required");
+  });
+
+  it("throws AuthError on HTTP 401", async () => {
+    mockFetch({}, 401);
+    await expect(getMealFeedback("2026-05-07")).rejects.toThrow(AuthError);
+  });
+});
+
+// ── setMealFeedback ───────────────────────────────────────────────────────
+
+describe("setMealFeedback", () => {
+  beforeEach(() => {
+    vi.mocked(getValidToken).mockResolvedValue("test-token");
+  });
+
+  it("returns saved feedback on success", async () => {
+    const fb = { date: "2026-05-07", rating: 5, notes: "Perfect", tags: ["family_favorite"] };
+    mockFetch(mcpOk(JSON.stringify(fb)));
+    const result = await setMealFeedback({ date: "2026-05-07", rating: 5, notes: "Perfect", tags: ["family_favorite"] });
+    expect(result).toEqual(fb);
+  });
+
+  it("throws when the tool returns isError", async () => {
+    mockFetch(mcpToolError("at least one of rating, notes, or tags is required"));
+    await expect(setMealFeedback({ date: "2026-05-07" })).rejects.toThrow("at least one of rating");
+  });
+
+  it("throws AuthError on HTTP 401", async () => {
+    mockFetch({}, 401);
+    await expect(setMealFeedback({ date: "2026-05-07", rating: 3 })).rejects.toThrow(AuthError);
   });
 });
