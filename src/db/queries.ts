@@ -32,6 +32,65 @@ export async function updateUserEmail(db: D1Database, userId: string, email: str
   await db.prepare("UPDATE users SET email = ? WHERE id = ?").bind(email, userId).run();
 }
 
+// ── OAuth identities ─────────────────────────────────────────────────────
+
+export interface OAuthIdentityRow {
+  provider: string;
+  provider_id: string;
+  user_id: string;
+  created_at: number;
+}
+
+export async function getIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+): Promise<OAuthIdentityRow | null> {
+  return db
+    .prepare("SELECT * FROM oauth_identities WHERE provider = ? AND provider_id = ?")
+    .bind(provider, providerId)
+    .first<OAuthIdentityRow>();
+}
+
+export async function linkIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      "INSERT INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(provider, providerId, userId, Date.now())
+    .run();
+}
+
+export async function createUserWithIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  email: string | null,
+): Promise<string> {
+  const userId = crypto.randomUUID();
+  const householdId = crypto.randomUUID();
+  const now = Date.now();
+  await db.batch([
+    db
+      .prepare("INSERT INTO households (id, name, created_at) VALUES (?, ?, ?)")
+      .bind(householdId, "My Household", now),
+    db
+      .prepare("INSERT INTO users (id, email, household_id, created_at) VALUES (?, ?, ?, ?)")
+      .bind(userId, email, householdId, now),
+    db
+      .prepare(
+        "INSERT INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .bind(provider, providerId, userId, now),
+  ]);
+  return userId;
+}
+
 export async function getOrCreateHousehold(db: D1Database, userId: string): Promise<string> {
   const user = await getUser(db, userId);
   if (user) return user.household_id;

@@ -1,6 +1,13 @@
 import type { Env } from "../types.ts";
 import { signJwt, verifyPkce, hashToken, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, type JwtPayload } from "./jwt.ts";
-import { getUser, getUserByEmail, updateUserEmail, createUserWithHousehold } from "../db/queries.ts";
+import {
+  getUser,
+  getUserByEmail,
+  updateUserEmail,
+  getIdentity,
+  linkIdentity,
+  createUserWithIdentity,
+} from "../db/queries.ts";
 import {
   getOAuthClient,
   insertOAuthClient,
@@ -239,29 +246,33 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
     verifiedEmail = primary?.email ?? emails.find((e) => e.verified)?.email ?? null;
   }
 
-  const githubUserId = `github:${ghUser.id}`;
-  const existing = await getUser(env.DB, githubUserId);
+  const provider = "github";
+  const providerId = String(ghUser.id);
 
+  const identity = await getIdentity(env.DB, provider, providerId);
   let userId: string;
-  if (existing) {
-    userId = existing.id;
+
+  if (identity) {
+    userId = identity.user_id;
     // Back-fill email if the user record doesn't have one yet
-    if (!existing.email && verifiedEmail) {
-      await updateUserEmail(env.DB, userId, verifiedEmail);
+    if (verifiedEmail) {
+      const user = await getUser(env.DB, userId);
+      if (user && !user.email) {
+        await updateUserEmail(env.DB, userId, verifiedEmail);
+      }
     }
   } else if (verifiedEmail) {
-    // Check if another account already owns this verified email
+    // No identity yet — check if a user already owns this verified email
     const emailOwner = await getUserByEmail(env.DB, verifiedEmail);
     if (emailOwner) {
-      // Link this GitHub identity to the existing account rather than creating a duplicate
+      // Link this provider identity to the existing account
       userId = emailOwner.id;
+      await linkIdentity(env.DB, provider, providerId, userId);
     } else {
-      userId = githubUserId;
-      await createUserWithHousehold(env.DB, userId, verifiedEmail);
+      userId = await createUserWithIdentity(env.DB, provider, providerId, verifiedEmail);
     }
   } else {
-    userId = githubUserId;
-    await createUserWithHousehold(env.DB, userId, null);
+    userId = await createUserWithIdentity(env.DB, provider, providerId, null);
   }
 
   // Issue MCP auth code

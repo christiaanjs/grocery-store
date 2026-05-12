@@ -67,6 +67,17 @@ CREATE TABLE meal_feedback (
   -- uniqueness enforced by idx_meal_feedback_unique (expression index with ifnull)
 );
 
+CREATE TABLE oauth_identities (
+  provider    TEXT NOT NULL,  -- 'github', 'google', etc.
+  provider_id TEXT NOT NULL,  -- provider's user ID (string)
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (provider, provider_id)
+);
+
+CREATE INDEX idx_oauth_identities_user ON oauth_identities(user_id);
+CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
+
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
 CREATE INDEX idx_meal_entries_household_date ON meal_entries(household_id, date);
 CREATE INDEX idx_preferences_household ON preferences(household_id);
