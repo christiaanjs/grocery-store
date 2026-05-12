@@ -76,7 +76,7 @@ CREATE TABLE oauth_identities (
 );
 
 CREATE INDEX idx_oauth_identities_user ON oauth_identities(user_id);
-CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
 
 CREATE INDEX idx_pantry_household ON pantry_items(household_id);
 CREATE INDEX idx_meal_entries_household_date ON meal_entries(household_id, date);
