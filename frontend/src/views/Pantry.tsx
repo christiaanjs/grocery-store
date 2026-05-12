@@ -132,10 +132,15 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   }
 
   async function saveNewItem() {
-    if (!newItem.name.trim()) return;
+    const name = newItem.name.trim();
+    if (!name) return;
+    if (items.some(i => i.name.toLowerCase() === name.toLowerCase())) {
+      setError(`An item named "${name}" already exists`);
+      return;
+    }
     try {
       const created = await updatePantryItem({
-        name: newItem.name.trim(),
+        name,
         category: newItem.category || undefined,
         quantity: newItem.quantity ? Number(newItem.quantity) : undefined,
         unit: newItem.unit || undefined,
