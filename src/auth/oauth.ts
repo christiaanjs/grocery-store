@@ -1,6 +1,13 @@
 import type { Env } from "../types.ts";
 import { signJwt, verifyPkce, hashToken, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, type JwtPayload } from "./jwt.ts";
-import { getUser, createUserWithHousehold } from "../db/queries.ts";
+import {
+  getUser,
+  getUserByEmail,
+  updateUserEmail,
+  getIdentity,
+  linkIdentity,
+  createUserWithIdentity,
+} from "../db/queries.ts";
 import {
   getOAuthClient,
   insertOAuthClient,
@@ -17,6 +24,17 @@ interface GitHubUser {
   id: number;
   login: string;
   email: string | null;
+}
+
+interface GitHubEmail {
+  email: string;
+  primary: boolean;
+  verified: boolean;
+}
+
+interface ProviderIdentity {
+  providerId: string;
+  verifiedEmail: string | null;
 }
 
 function issuerFromRequest(request: Request): string {
@@ -108,12 +126,8 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   );
 }
 
-// GET /authorize
-export async function handleAuthorize(request: Request, env: Env): Promise<Response> {
-  if (!env.GITHUB_CLIENT_ID) {
-    return new Response("Server misconfiguration: GITHUB_CLIENT_ID not set", { status: 500 });
-  }
-
+// GET /authorize and GET /authorize/:provider
+export async function handleAuthorize(request: Request, env: Env, provider: string): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const clientId = params.get("client_id");
   const redirectUri = params.get("redirect_uri");
@@ -147,10 +161,19 @@ export async function handleAuthorize(request: Request, env: Env): Promise<Respo
     return oauthError("invalid_redirect_uri", "redirect_uri not registered for this client");
   }
 
+  const providerRedirect = buildProviderRedirect(provider, env, issuerFromRequest(request));
+  if (providerRedirect === "unsupported") {
+    return oauthError("invalid_request", `Unknown provider: ${provider}`);
+  }
+  if (providerRedirect === "misconfigured") {
+    return oauthError("server_error", `Provider ${provider} is not configured`, 500);
+  }
+
   const internalState = crypto.randomUUID();
   await insertOAuthState(env.DB, {
     state: internalState,
     client_id: clientId,
+    provider,
     code_challenge: codeChallenge,
     code_challenge_method: codeChallengeMethod,
     redirect_uri: redirectUri,
@@ -158,13 +181,55 @@ export async function handleAuthorize(request: Request, env: Env): Promise<Respo
     expires_at: Date.now() + 10 * 60 * 1000, // 10 min in ms
   });
 
-  const githubUrl = new URL("https://github.com/login/oauth/authorize");
-  githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
-  githubUrl.searchParams.set("redirect_uri", `${issuerFromRequest(request)}/oauth/callback`);
-  githubUrl.searchParams.set("scope", "user:email");
-  githubUrl.searchParams.set("state", internalState);
+  providerRedirect.searchParams.set("state", internalState);
+  return Response.redirect(providerRedirect.toString(), 302);
+}
 
-  return Response.redirect(githubUrl.toString(), 302);
+function buildProviderRedirect(
+  provider: string,
+  env: Env,
+  issuer: string,
+): URL | "unsupported" | "misconfigured" {
+  if (provider === "github") {
+    if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return "misconfigured";
+    const url = new URL("https://github.com/login/oauth/authorize");
+    url.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+    url.searchParams.set("redirect_uri", `${issuer}/oauth/callback`);
+    url.searchParams.set("scope", "user:email");
+    return url;
+  }
+  return "unsupported";
+}
+
+async function resolveUserId(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  verifiedEmail: string | null,
+): Promise<string> {
+  const identity = await getIdentity(db, provider, providerId);
+  if (identity) {
+    // Back-fill email if the user record doesn't have one yet
+    if (verifiedEmail) {
+      const user = await getUser(db, identity.user_id);
+      if (user && !user.email) {
+        await updateUserEmail(db, identity.user_id, verifiedEmail);
+      }
+    }
+    return identity.user_id;
+  }
+
+  if (verifiedEmail) {
+    // No identity yet — check if a user already owns this verified email
+    const emailOwner = await getUserByEmail(db, verifiedEmail);
+    if (emailOwner) {
+      // Link this provider identity to the existing account (INSERT OR IGNORE is idempotent)
+      await linkIdentity(db, provider, providerId, emailOwner.id);
+      return emailOwner.id;
+    }
+  }
+
+  return createUserWithIdentity(db, provider, providerId, verifiedEmail);
 }
 
 // GET /oauth/callback
@@ -182,46 +247,18 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
     return new Response("Invalid or expired state", { status: 400 });
   }
 
-  // Exchange GitHub code for access token
-  const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-      redirect_uri: `${issuerFromRequest(request)}/oauth/callback`,
-    }),
-  });
+  const result = await fetchProviderIdentity(pending.provider, code, issuerFromRequest(request), env);
+  if (result instanceof Response) return result;
 
-  if (!tokenRes.ok) {
-    return new Response("GitHub token exchange failed", { status: 502 });
-  }
+  const { provider, providerId, verifiedEmail } = result;
 
-  const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
-  if (!tokenData.access_token) {
-    return new Response(`GitHub auth error: ${tokenData.error ?? "unknown"}`, { status: 502 });
-  }
-
-  // Fetch GitHub user profile
-  const userRes = await fetch("https://api.github.com/user", {
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "grocery-store-mcp/1.0",
-    },
-  });
-
-  if (!userRes.ok) {
-    return new Response("Failed to fetch GitHub user", { status: 502 });
-  }
-
-  const ghUser = (await userRes.json()) as GitHubUser;
-  const userId = `github:${ghUser.id}`;
-
-  const existing = await getUser(env.DB, userId);
-  if (!existing) {
-    await createUserWithHousehold(env.DB, userId, ghUser.email);
+  let userId: string;
+  try {
+    userId = await resolveUserId(env.DB, provider, providerId, verifiedEmail);
+  } catch {
+    // On constraint violation (concurrent login race), retry once after re-reading DB state
+    const retried = await resolveUserId(env.DB, provider, providerId, verifiedEmail);
+    userId = retried;
   }
 
   // Issue MCP auth code
@@ -244,6 +281,67 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
   return Response.redirect(callbackUrl.toString(), 302);
 }
 
+async function fetchProviderIdentity(
+  provider: string,
+  code: string,
+  issuer: string,
+  env: Env,
+): Promise<(ProviderIdentity & { provider: string }) | Response> {
+  if (provider === "github") {
+    const result = await fetchGitHubIdentity(code, issuer, env);
+    if (result instanceof Response) return result;
+    return { provider, ...result };
+  }
+  return new Response(`Unsupported provider: ${provider}`, { status: 400 });
+}
+
+async function fetchGitHubIdentity(
+  code: string,
+  issuer: string,
+  env: Env,
+): Promise<ProviderIdentity | Response> {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+    return new Response("GitHub OAuth is not configured", { status: 500 });
+  }
+  const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: env.GITHUB_CLIENT_ID,
+      client_secret: env.GITHUB_CLIENT_SECRET,
+      code,
+      redirect_uri: `${issuer}/oauth/callback`,
+    }),
+  });
+  if (!tokenRes.ok) return new Response("GitHub token exchange failed", { status: 502 });
+
+  const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
+  if (!tokenData.access_token) {
+    return new Response(`GitHub auth error: ${tokenData.error ?? "unknown"}`, { status: 502 });
+  }
+
+  const ghHeaders = {
+    Authorization: `Bearer ${tokenData.access_token}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "grocery-store-mcp/1.0",
+  };
+
+  const userRes = await fetch("https://api.github.com/user", { headers: ghHeaders });
+  if (!userRes.ok) return new Response("Failed to fetch GitHub user", { status: 502 });
+  const ghUser = (await userRes.json()) as GitHubUser;
+
+  // /user/emails is more reliable than the profile field (hidden when email is private)
+  let verifiedEmail: string | null = null;
+  const emailsRes = await fetch("https://api.github.com/user/emails", { headers: ghHeaders });
+  if (emailsRes.ok) {
+    const emails = (await emailsRes.json()) as GitHubEmail[];
+    const primary = emails.find((e) => e.primary && e.verified);
+    verifiedEmail = primary?.email ?? emails.find((e) => e.verified)?.email ?? null;
+  }
+
+  return { providerId: String(ghUser.id), verifiedEmail };
+}
+
 // POST /token
 export async function handleToken(request: Request, env: Env): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -251,7 +349,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     return oauthError("invalid_request", "Content-Type must be application/x-www-form-urlencoded");
   }
 
-  const params = new URLSearchParams(await request.text());
+  const params = await request.formData();
   const grantType = params.get("grant_type");
 
   if (grantType === "authorization_code") {
@@ -268,7 +366,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
 
 async function handleAuthCodeGrant(
   request: Request,
-  params: URLSearchParams,
+  params: FormData,
   env: Env,
 ): Promise<Response> {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
@@ -316,7 +414,7 @@ async function handleAuthCodeGrant(
 
 async function handleRefreshGrant(
   request: Request,
-  params: URLSearchParams,
+  params: FormData,
   env: Env,
 ): Promise<Response> {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {

@@ -23,6 +23,7 @@ export interface Env {
   JWT_SECRET: string;
   ALLOWED_ORIGIN: string;
   ALLOW_ORIGIN_SUBDOMAINS: string;
+  DEFAULT_OAUTH_PROVIDER?: string;
 }
 
 export interface Preference {

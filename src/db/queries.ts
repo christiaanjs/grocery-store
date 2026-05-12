@@ -24,6 +24,77 @@ export async function createUserWithHousehold(
   return householdId;
 }
 
+export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
+  return db.prepare("SELECT * FROM users WHERE email = ?").bind(email.toLowerCase()).first<User>();
+}
+
+export async function updateUserEmail(db: D1Database, userId: string, email: string): Promise<void> {
+  await db
+    .prepare("UPDATE users SET email = ? WHERE id = ? AND email IS NULL")
+    .bind(email.toLowerCase(), userId)
+    .run();
+}
+
+// ── OAuth identities ─────────────────────────────────────────────────────
+
+export interface OAuthIdentityRow {
+  provider: string;
+  provider_id: string;
+  user_id: string;
+  created_at: number;
+}
+
+export async function getIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+): Promise<OAuthIdentityRow | null> {
+  return db
+    .prepare("SELECT * FROM oauth_identities WHERE provider = ? AND provider_id = ?")
+    .bind(provider, providerId)
+    .first<OAuthIdentityRow>();
+}
+
+export async function linkIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  userId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      "INSERT OR IGNORE INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(provider, providerId, userId, Date.now())
+    .run();
+}
+
+export async function createUserWithIdentity(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  email: string | null,
+): Promise<string> {
+  const userId = crypto.randomUUID();
+  const householdId = crypto.randomUUID();
+  const now = Date.now();
+  const normalizedEmail = email ? email.toLowerCase() : null;
+  await db.batch([
+    db
+      .prepare("INSERT INTO households (id, name, created_at) VALUES (?, ?, ?)")
+      .bind(householdId, "My Household", now),
+    db
+      .prepare("INSERT INTO users (id, email, household_id, created_at) VALUES (?, ?, ?, ?)")
+      .bind(userId, normalizedEmail, householdId, now),
+    db
+      .prepare(
+        "INSERT INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+      )
+      .bind(provider, providerId, userId, now),
+  ]);
+  return userId;
+}
+
 export async function getOrCreateHousehold(db: D1Database, userId: string): Promise<string> {
   const user = await getUser(db, userId);
   if (user) return user.household_id;
@@ -70,7 +141,7 @@ export async function upsertPantryItem(
 ): Promise<PantryItem> {
   const now = Date.now();
   const existing = await db
-    .prepare("SELECT * FROM pantry_items WHERE household_id = ? AND name = ?")
+    .prepare("SELECT * FROM pantry_items WHERE household_id = ? AND lower(name) = lower(?)")
     .bind(householdId, item.name)
     .first<PantryItem>();
 
