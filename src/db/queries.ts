@@ -195,6 +195,18 @@ export async function upsertPantryItem(
   };
 }
 
+export async function deletePantryItem(
+  db: D1Database,
+  householdId: string,
+  name: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM pantry_items WHERE household_id = ? AND name = ?")
+    .bind(householdId, name)
+    .run();
+  return result.meta.changes > 0;
+}
+
 export async function markPantryItemsOut(
   db: D1Database,
   householdId: string,
@@ -379,6 +391,27 @@ export async function deletePreference(
 }
 
 // ── Meal feedback ────────────────────────────────────────────────────────
+
+export async function getMealFeedbackForDate(
+  db: D1Database,
+  householdId: string,
+  date: string,
+): Promise<MealFeedback | null> {
+  const mealEntry = await db
+    .prepare("SELECT name, ingredients, steps FROM meal_entries WHERE household_id = ? AND date = ?")
+    .bind(householdId, date)
+    .first<{ name: string; ingredients: string | null; steps: string | null }>();
+  if (!mealEntry) return null;
+  const currentSnapshot = JSON.stringify({
+    name: mealEntry.name,
+    ingredients: mealEntry.ingredients,
+    steps: mealEntry.steps,
+  });
+  return db
+    .prepare("SELECT * FROM meal_feedback WHERE household_id = ? AND date = ? AND meal_snapshot = ?")
+    .bind(householdId, date, currentSnapshot)
+    .first<MealFeedback>();
+}
 
 export async function upsertMealFeedback(
   db: D1Database,

@@ -30,7 +30,7 @@ export function App() {
     if (location.pathname === "/callback") {
       handleCallback(params)
         .then(() => {
-          history.replaceState(null, "", "/pantry");
+          history.replaceState(null, "", "/meal-plan");
           setAuthed(true);
         })
         .catch((err: unknown) => {

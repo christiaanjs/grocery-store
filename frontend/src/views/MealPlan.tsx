@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useState, useEffect } from "preact/hooks";
 import type { ComponentType } from "preact";
 import _FullCalendar from "@fullcalendar/react";
 // @fullcalendar/react is a React class component; cast to Preact ComponentType to work with preact/compat aliasing at runtime.
@@ -7,7 +7,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventInput, EventDropArg } from "@fullcalendar/core";
-import { getMealPlan, setMeals, deleteMeals, type MealEntryData, type MealIngredient } from "../api.ts";
+import { getMealPlan, setMeals, deleteMeals, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
 import { replaceUrl, inferInitialView, localDateStr } from "../hooks/useUrlState.ts";
 
 interface Props {
@@ -123,18 +123,19 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
 
   // ── Save from modal ───────────────────────────────────────────────────
 
-  async function onModalSave(entry: {
-    date: string;
-    name: string;
-    ingredients: MealIngredient[];
-    steps: string[];
-  }) {
+  async function onModalSave(
+    entry: { date: string; name: string; ingredients: MealIngredient[]; steps: string[] },
+    feedback: { rating?: number; notes?: string; tags?: string[] } | null,
+  ) {
     try {
       const [saved] = await setMeals([entry]);
       setMealsState(prev => {
         const next = prev.filter(m => m.date !== entry.date);
         return [...next, saved];
       });
+      if (feedback && (feedback.rating !== undefined || feedback.notes || feedback.tags?.length)) {
+        await setMealFeedback({ date: entry.date, ...feedback });
+      }
       setModal(null);
     } catch (err) {
       onAuthError(err);
@@ -178,6 +179,7 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
           onSave={onModalSave}
           onDelete={onModalDelete}
           onClose={() => setModal(null)}
+          onAuthError={onAuthError}
         />
       )}
     </div>
@@ -189,12 +191,13 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
 interface MealModalProps {
   date: string;
   existing: MealEntryData | null;
-  onSave: (entry: { date: string; name: string; ingredients: MealIngredient[]; steps: string[] }) => void;
+  onSave: (entry: { date: string; name: string; ingredients: MealIngredient[]; steps: string[] }, feedback: { rating?: number; notes?: string; tags?: string[] } | null) => void;
   onDelete: (date: string) => void;
   onClose: () => void;
+  onAuthError: (err: unknown) => void;
 }
 
-function MealModal({ date, existing, onSave, onDelete, onClose }: MealModalProps) {
+function MealModal({ date, existing, onSave, onDelete, onClose, onAuthError }: MealModalProps) {
   const [name, setName] = useState(existing?.name ?? "");
   const [ingredients, setIngredients] = useState<FormIngredient[]>(() => {
     if (!existing?.ingredients?.length) return [{ name: "", quantity: "", unit: "" }];
@@ -204,6 +207,25 @@ function MealModal({ date, existing, onSave, onDelete, onClose }: MealModalProps
     if (!existing?.steps?.length) return "";
     return existing.steps.join("\n");
   });
+
+  const [feedback, setFeedback] = useState<MealFeedback | null>(null);
+  const [fbRating, setFbRating] = useState<number | undefined>(undefined);
+  const [fbNotes, setFbNotes] = useState("");
+  const [fbTags, setFbTags] = useState("");
+
+  useEffect(() => {
+    if (!existing) return;
+    getMealFeedback(date)
+      .then(fb => {
+        if (fb) {
+          setFeedback(fb);
+          setFbRating(fb.rating);
+          setFbNotes(fb.notes ?? "");
+          setFbTags(fb.tags?.join(", ") ?? "");
+        }
+      })
+      .catch(onAuthError);
+  }, [date, existing]);
 
   function handleSave() {
     if (!name.trim()) return;
@@ -218,8 +240,14 @@ function MealModal({ date, existing, onSave, onDelete, onClose }: MealModalProps
       .split("\n")
       .map(s => s.trim())
       .filter(Boolean);
-    onSave({ date, name: name.trim(), ingredients: cleanedIngredients, steps: cleanedSteps });
+    const tags = fbTags.split(",").map(t => t.trim()).filter(Boolean);
+    const feedbackPayload = (fbRating !== undefined || fbNotes.trim() || tags.length)
+      ? { rating: fbRating, notes: fbNotes.trim() || undefined, tags: tags.length ? tags : undefined }
+      : null;
+    onSave({ date, name: name.trim(), ingredients: cleanedIngredients, steps: cleanedSteps }, feedbackPayload);
   }
+
+  const STARS = [1, 2, 3, 4, 5];
 
   return (
     <div class="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -280,6 +308,40 @@ function MealModal({ date, existing, onSave, onDelete, onClose }: MealModalProps
           onInput={e => setSteps((e.target as HTMLTextAreaElement).value)}
           placeholder={"Cook pasta al dente\nFry guanciale until crispy\n…"}
         />
+
+        {existing && (
+          <details class="feedback-section" open={!!feedback}>
+            <summary>Feedback{feedback ? ` · ${"★".repeat(feedback.rating ?? 0)}` : ""}</summary>
+            <div class="feedback-body">
+              <label>Rating</label>
+              <div class="star-rating">
+                {STARS.map(s => (
+                  <button
+                    key={s}
+                    class={`star${fbRating !== undefined && s <= fbRating ? " filled" : ""}`}
+                    onClick={() => setFbRating(prev => prev === s ? undefined : s)}
+                    type="button"
+                    aria-label={`${s} star${s !== 1 ? "s" : ""}`}
+                  >★</button>
+                ))}
+              </div>
+              <label>Notes</label>
+              <textarea
+                value={fbNotes}
+                onInput={e => setFbNotes((e.target as HTMLTextAreaElement).value)}
+                placeholder="What worked well? What to change next time?"
+                rows={3}
+              />
+              <label>Tags (comma-separated)</label>
+              <input
+                type="text"
+                value={fbTags}
+                onInput={e => setFbTags((e.target as HTMLInputElement).value)}
+                placeholder="family_favorite, quick, would_repeat"
+              />
+            </div>
+          </details>
+        )}
 
         <div class="modal-footer">
           {existing && (

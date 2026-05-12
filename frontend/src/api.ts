@@ -82,6 +82,9 @@ export const updatePantryItem = (item: {
 export const markItemsOut = (names: string[]) =>
   mcpCall<void>("pantry_mark_out", { names });
 
+export const deletePantryItem = (name: string) =>
+  mcpCall<{ deleted: boolean }>("pantry_delete", { name });
+
 export const bulkUpdatePantry = (
   items: Array<{
     name: string;
@@ -100,3 +103,16 @@ export const setMeals = (meals: MealEntryData[]) =>
 
 export const deleteMeals = (dates: string[]) =>
   mcpCall<void>("meal_plan_delete", { dates });
+
+export interface MealFeedback {
+  date: string;
+  rating?: number;
+  notes?: string;
+  tags?: string[];
+}
+
+export const getMealFeedback = (date: string) =>
+  mcpCall<MealFeedback | null>("meal_feedback_get", { date });
+
+export const setMealFeedback = (feedback: { date: string; rating?: number; notes?: string; tags?: string[] }) =>
+  mcpCall<MealFeedback>("meal_feedback_set", feedback as Record<string, unknown>);

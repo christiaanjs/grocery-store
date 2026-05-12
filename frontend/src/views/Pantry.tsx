@@ -1,5 +1,5 @@
 import { useState, useEffect } from "preact/hooks";
-import { listPantryItems, updatePantryItem, markItemsOut, type PantryItem } from "../api.ts";
+import { listPantryItems, updatePantryItem, markItemsOut, deletePantryItem, type PantryItem } from "../api.ts";
 import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
 interface EditState {
@@ -61,19 +61,45 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   }
 
   async function saveEdit(item: PantryItem) {
+    const newName = editState.name.trim() || item.name;
+    const nameChanged = newName.toLowerCase() !== item.name.toLowerCase();
+    if (nameChanged && items.some(i => i.id !== item.id && i.name.toLowerCase() === newName.toLowerCase())) {
+      setError(`An item named "${newName}" already exists`);
+      return;
+    }
     try {
       const updated = await updatePantryItem({
-        name: editState.name || item.name,
+        name: newName,
         category: editState.category || undefined,
         quantity: editState.quantity ? Number(editState.quantity) : undefined,
         unit: editState.unit || undefined,
         in_stock: item.in_stock === 1,
       });
-      setItems(prev => prev.map(i => i.id === item.id ? updated : i));
+      if (nameChanged) {
+        const { deleted } = await deletePantryItem(item.name);
+        if (!deleted) {
+          // Old row is gone or already cleaned up — reload to get consistent state
+          void load();
+          setEditingId(null);
+          return;
+        }
+      }
+      setItems(prev => prev.filter(i => i.id !== item.id).concat(updated));
       setEditingId(null);
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  async function deleteItem(item: PantryItem) {
+    try {
+      await deletePantryItem(item.name);
+      setItems(prev => prev.filter(i => i.id !== item.id));
+      setSelected(prev => { const next = new Set(prev); next.delete(item.id); return next; });
+    } catch (err) {
+      onAuthError(err);
+      setError(err instanceof Error ? err.message : "Delete failed");
     }
   }
 
@@ -106,10 +132,15 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   }
 
   async function saveNewItem() {
-    if (!newItem.name.trim()) return;
+    const name = newItem.name.trim();
+    if (!name) return;
+    if (items.some(i => i.name.toLowerCase() === name.toLowerCase())) {
+      setError(`An item named "${name}" already exists`);
+      return;
+    }
     try {
       const created = await updatePantryItem({
-        name: newItem.name.trim(),
+        name,
         category: newItem.category || undefined,
         quantity: newItem.quantity ? Number(newItem.quantity) : undefined,
         unit: newItem.unit || undefined,
@@ -201,6 +232,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                         <div class="row-actions">
                           <button class="save-btn" onClick={() => void saveEdit(item)}>Save</button>
                           <button onClick={() => setEditingId(null)}>Cancel</button>
+                          <button class="btn-danger" onClick={() => void deleteItem(item)}>Delete</button>
                         </div>
                       </td>
                     </>
@@ -221,6 +253,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                       <td>
                         <div class="row-actions">
                           <button onClick={() => startEdit(item)}>Edit</button>
+                          <button class="btn-danger" onClick={() => void deleteItem(item)}>Delete</button>
                         </div>
                       </td>
                     </>

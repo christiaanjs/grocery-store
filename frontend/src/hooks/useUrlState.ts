@@ -13,7 +13,7 @@ export function parseUrl(): UrlState {
   const path = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
   return {
-    tab: path === "/meal-plan" ? "meals" : "pantry",
+    tab: path === "/pantry" ? "pantry" : "meals",
     filter: (params.get("filter") ?? "all") as Filter,
     search: params.get("search") ?? "",
     from: params.get("from") ?? undefined,

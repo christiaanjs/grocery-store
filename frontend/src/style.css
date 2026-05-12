@@ -366,6 +366,58 @@ button {
   border: 1px solid #fca5a5;
 }
 
+/* ── Star rating ─────────────────────────────────────────────────────────── */
+
+.feedback-section {
+  margin-top: 1.25rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.75rem;
+}
+
+.feedback-section summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: #374151;
+  user-select: none;
+}
+
+.feedback-body {
+  margin-top: 0.75rem;
+}
+
+.star-rating {
+  display: flex;
+  gap: 0.2rem;
+  margin-bottom: 0.75rem;
+}
+
+.star-rating .star {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+  cursor: pointer;
+  color: #d1d5db;
+  transition: color 0.1s, transform 0.1s;
+}
+
+/* Selected stars are gold */
+.star-rating .star.filled {
+  color: #f59e0b;
+}
+
+/* On hover: light up all stars up to the hovered one, dim those after */
+.star-rating:has(.star:hover) .star {
+  color: #fcd34d;
+}
+.star-rating:has(.star:hover) .star:hover ~ .star {
+  color: #d1d5db;
+}
+.star-rating .star:hover {
+  transform: scale(1.15);
+}
+
 /* ── Misc ───────────────────────────────────────────────────────────────── */
 
 .loading {

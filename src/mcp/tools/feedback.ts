@@ -1,5 +1,5 @@
 import type { MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
-import { getMealEntries, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
+import { getMealEntries, getMealFeedbackForDate, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
 
 export const FEEDBACK_TOOLS: ToolDefinition[] = [
   {
@@ -28,6 +28,17 @@ export const FEEDBACK_TOOLS: ToolDefinition[] = [
           items: { type: "string" },
           description: "Labels for the meal, e.g. 'family_favorite', 'too_spicy', 'quick', 'would_repeat'.",
         },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "meal_feedback_get",
+    description: "Get existing feedback for a meal on a specific date. Returns null if no feedback exists for the current meal version.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "ISO date of the meal (e.g. '2026-05-07')." },
       },
       required: ["date"],
     },
@@ -108,6 +119,21 @@ export async function handleFeedbackTool(
       if (saved.notes !== null) data["notes"] = saved.notes;
       if (saved.tags !== null) data["tags"] = JSON.parse(saved.tags) as string[];
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+
+    case "meal_feedback_get": {
+      if (typeof args["date"] !== "string") {
+        return { content: [{ type: "text", text: "date is required" }], isError: true };
+      }
+      const fb = await getMealFeedbackForDate(db, householdId, args["date"]);
+      if (!fb) {
+        return { content: [{ type: "text", text: "null" }] };
+      }
+      const data: Record<string, unknown> = { date: fb.date };
+      if (fb.rating !== null) data["rating"] = fb.rating;
+      if (fb.notes !== null) data["notes"] = fb.notes;
+      if (fb.tags !== null) data["tags"] = JSON.parse(fb.tags) as string[];
+      return { content: [{ type: "text", text: JSON.stringify(data) }] };
     }
 
     case "meal_search": {
