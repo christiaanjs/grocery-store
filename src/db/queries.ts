@@ -24,6 +24,14 @@ export async function createUserWithHousehold(
   return householdId;
 }
 
+export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
+  return db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<User>();
+}
+
+export async function updateUserEmail(db: D1Database, userId: string, email: string): Promise<void> {
+  await db.prepare("UPDATE users SET email = ? WHERE id = ?").bind(email, userId).run();
+}
+
 export async function getOrCreateHousehold(db: D1Database, userId: string): Promise<string> {
   const user = await getUser(db, userId);
   if (user) return user.household_id;

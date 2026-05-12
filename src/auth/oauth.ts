@@ -1,6 +1,6 @@
 import type { Env } from "../types.ts";
 import { signJwt, verifyPkce, hashToken, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, type JwtPayload } from "./jwt.ts";
-import { getUser, createUserWithHousehold } from "../db/queries.ts";
+import { getUser, getUserByEmail, updateUserEmail, createUserWithHousehold } from "../db/queries.ts";
 import {
   getOAuthClient,
   insertOAuthClient,
@@ -17,6 +17,12 @@ interface GitHubUser {
   id: number;
   login: string;
   email: string | null;
+}
+
+interface GitHubEmail {
+  email: string;
+  primary: boolean;
+  verified: boolean;
 }
 
 function issuerFromRequest(request: Request): string {
@@ -217,11 +223,45 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
   }
 
   const ghUser = (await userRes.json()) as GitHubUser;
-  const userId = `github:${ghUser.id}`;
 
-  const existing = await getUser(env.DB, userId);
-  if (!existing) {
-    await createUserWithHousehold(env.DB, userId, ghUser.email);
+  // Fetch verified emails — /user/emails is more reliable than the profile email field
+  const emailsRes = await fetch("https://api.github.com/user/emails", {
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "grocery-store-mcp/1.0",
+    },
+  });
+  let verifiedEmail: string | null = null;
+  if (emailsRes.ok) {
+    const emails = (await emailsRes.json()) as GitHubEmail[];
+    const primary = emails.find((e) => e.primary && e.verified);
+    verifiedEmail = primary?.email ?? emails.find((e) => e.verified)?.email ?? null;
+  }
+
+  const githubUserId = `github:${ghUser.id}`;
+  const existing = await getUser(env.DB, githubUserId);
+
+  let userId: string;
+  if (existing) {
+    userId = existing.id;
+    // Back-fill email if the user record doesn't have one yet
+    if (!existing.email && verifiedEmail) {
+      await updateUserEmail(env.DB, userId, verifiedEmail);
+    }
+  } else if (verifiedEmail) {
+    // Check if another account already owns this verified email
+    const emailOwner = await getUserByEmail(env.DB, verifiedEmail);
+    if (emailOwner) {
+      // Link this GitHub identity to the existing account rather than creating a duplicate
+      userId = emailOwner.id;
+    } else {
+      userId = githubUserId;
+      await createUserWithHousehold(env.DB, userId, verifiedEmail);
+    }
+  } else {
+    userId = githubUserId;
+    await createUserWithHousehold(env.DB, userId, null);
   }
 
   // Issue MCP auth code
