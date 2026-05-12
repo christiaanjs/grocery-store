@@ -1,5 +1,5 @@
 -- Remove any duplicate emails before adding the unique constraint.
--- Keeps the earliest-created account per email; also cleans up its identities.
+-- Keeps the earliest-inserted account (lowest rowid) per email; also cleans up its identities.
 -- In practice the email-based linking logic prevents duplicates, but this is a safety net.
 DELETE FROM oauth_identities
 WHERE user_id IN (

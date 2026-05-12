@@ -162,8 +162,11 @@ export async function handleAuthorize(request: Request, env: Env, provider: stri
   }
 
   const providerRedirect = buildProviderRedirect(provider, env, issuerFromRequest(request));
-  if (!providerRedirect) {
-    return oauthError("invalid_request", `Unsupported or misconfigured provider: ${provider}`);
+  if (providerRedirect === "unsupported") {
+    return oauthError("invalid_request", `Unknown provider: ${provider}`);
+  }
+  if (providerRedirect === "misconfigured") {
+    return oauthError("server_error", `Provider ${provider} is not configured`, 500);
   }
 
   const internalState = crypto.randomUUID();
@@ -182,16 +185,51 @@ export async function handleAuthorize(request: Request, env: Env, provider: stri
   return Response.redirect(providerRedirect.toString(), 302);
 }
 
-function buildProviderRedirect(provider: string, env: Env, issuer: string): URL | null {
+function buildProviderRedirect(
+  provider: string,
+  env: Env,
+  issuer: string,
+): URL | "unsupported" | "misconfigured" {
   if (provider === "github") {
-    if (!env.GITHUB_CLIENT_ID) return null;
+    if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return "misconfigured";
     const url = new URL("https://github.com/login/oauth/authorize");
     url.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
     url.searchParams.set("redirect_uri", `${issuer}/oauth/callback`);
     url.searchParams.set("scope", "user:email");
     return url;
   }
-  return null;
+  return "unsupported";
+}
+
+async function resolveUserId(
+  db: D1Database,
+  provider: string,
+  providerId: string,
+  verifiedEmail: string | null,
+): Promise<string> {
+  const identity = await getIdentity(db, provider, providerId);
+  if (identity) {
+    // Back-fill email if the user record doesn't have one yet
+    if (verifiedEmail) {
+      const user = await getUser(db, identity.user_id);
+      if (user && !user.email) {
+        await updateUserEmail(db, identity.user_id, verifiedEmail);
+      }
+    }
+    return identity.user_id;
+  }
+
+  if (verifiedEmail) {
+    // No identity yet — check if a user already owns this verified email
+    const emailOwner = await getUserByEmail(db, verifiedEmail);
+    if (emailOwner) {
+      // Link this provider identity to the existing account (INSERT OR IGNORE is idempotent)
+      await linkIdentity(db, provider, providerId, emailOwner.id);
+      return emailOwner.id;
+    }
+  }
+
+  return createUserWithIdentity(db, provider, providerId, verifiedEmail);
 }
 
 // GET /oauth/callback
@@ -214,30 +252,13 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
 
   const { provider, providerId, verifiedEmail } = result;
 
-  const identity = await getIdentity(env.DB, provider, providerId);
   let userId: string;
-
-  if (identity) {
-    userId = identity.user_id;
-    // Back-fill email if the user record doesn't have one yet
-    if (verifiedEmail) {
-      const user = await getUser(env.DB, userId);
-      if (user && !user.email) {
-        await updateUserEmail(env.DB, userId, verifiedEmail);
-      }
-    }
-  } else if (verifiedEmail) {
-    // No identity yet — check if a user already owns this verified email
-    const emailOwner = await getUserByEmail(env.DB, verifiedEmail);
-    if (emailOwner) {
-      // Link this provider identity to the existing account
-      userId = emailOwner.id;
-      await linkIdentity(env.DB, provider, providerId, userId);
-    } else {
-      userId = await createUserWithIdentity(env.DB, provider, providerId, verifiedEmail);
-    }
-  } else {
-    userId = await createUserWithIdentity(env.DB, provider, providerId, null);
+  try {
+    userId = await resolveUserId(env.DB, provider, providerId, verifiedEmail);
+  } catch {
+    // On constraint violation (concurrent login race), retry once after re-reading DB state
+    const retried = await resolveUserId(env.DB, provider, providerId, verifiedEmail);
+    userId = retried;
   }
 
   // Issue MCP auth code
@@ -279,6 +300,9 @@ async function fetchGitHubIdentity(
   issuer: string,
   env: Env,
 ): Promise<ProviderIdentity | Response> {
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+    return new Response("GitHub OAuth is not configured", { status: 500 });
+  }
   const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },

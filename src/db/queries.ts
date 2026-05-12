@@ -25,11 +25,14 @@ export async function createUserWithHousehold(
 }
 
 export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
-  return db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<User>();
+  return db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").bind(email).first<User>();
 }
 
 export async function updateUserEmail(db: D1Database, userId: string, email: string): Promise<void> {
-  await db.prepare("UPDATE users SET email = ? WHERE id = ?").bind(email, userId).run();
+  await db
+    .prepare("UPDATE users SET email = lower(?) WHERE id = ? AND email IS NULL")
+    .bind(email, userId)
+    .run();
 }
 
 // ── OAuth identities ─────────────────────────────────────────────────────
@@ -60,7 +63,7 @@ export async function linkIdentity(
 ): Promise<void> {
   await db
     .prepare(
-      "INSERT INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
     )
     .bind(provider, providerId, userId, Date.now())
     .run();
@@ -75,13 +78,14 @@ export async function createUserWithIdentity(
   const userId = crypto.randomUUID();
   const householdId = crypto.randomUUID();
   const now = Date.now();
+  const normalizedEmail = email ? email.toLowerCase() : null;
   await db.batch([
     db
       .prepare("INSERT INTO households (id, name, created_at) VALUES (?, ?, ?)")
       .bind(householdId, "My Household", now),
     db
       .prepare("INSERT INTO users (id, email, household_id, created_at) VALUES (?, ?, ?, ?)")
-      .bind(userId, email, householdId, now),
+      .bind(userId, normalizedEmail, householdId, now),
     db
       .prepare(
         "INSERT INTO oauth_identities (provider, provider_id, user_id, created_at) VALUES (?, ?, ?, ?)",
@@ -137,7 +141,7 @@ export async function upsertPantryItem(
 ): Promise<PantryItem> {
   const now = Date.now();
   const existing = await db
-    .prepare("SELECT * FROM pantry_items WHERE household_id = ? AND name = ?")
+    .prepare("SELECT * FROM pantry_items WHERE household_id = ? AND lower(name) = lower(?)")
     .bind(householdId, item.name)
     .first<PantryItem>();
 
