@@ -25,13 +25,13 @@ export async function createUserWithHousehold(
 }
 
 export async function getUserByEmail(db: D1Database, email: string): Promise<User | null> {
-  return db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").bind(email).first<User>();
+  return db.prepare("SELECT * FROM users WHERE email = ?").bind(email.toLowerCase()).first<User>();
 }
 
 export async function updateUserEmail(db: D1Database, userId: string, email: string): Promise<void> {
   await db
-    .prepare("UPDATE users SET email = lower(?) WHERE id = ? AND email IS NULL")
-    .bind(email, userId)
+    .prepare("UPDATE users SET email = ? WHERE id = ? AND email IS NULL")
+    .bind(email.toLowerCase(), userId)
     .run();
 }
 
