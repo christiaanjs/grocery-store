@@ -349,7 +349,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     return oauthError("invalid_request", "Content-Type must be application/x-www-form-urlencoded");
   }
 
-  const params = new URLSearchParams(await request.text());
+  const params = await request.formData();
   const grantType = params.get("grant_type");
 
   if (grantType === "authorization_code") {
@@ -366,7 +366,7 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
 
 async function handleAuthCodeGrant(
   request: Request,
-  params: URLSearchParams,
+  params: FormData,
   env: Env,
 ): Promise<Response> {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
@@ -414,7 +414,7 @@ async function handleAuthCodeGrant(
 
 async function handleRefreshGrant(
   request: Request,
-  params: URLSearchParams,
+  params: FormData,
   env: Env,
 ): Promise<Response> {
   if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
