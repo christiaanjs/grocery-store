@@ -32,6 +32,11 @@ interface GitHubEmail {
   verified: boolean;
 }
 
+interface ProviderIdentity {
+  providerId: string;
+  verifiedEmail: string | null;
+}
+
 function issuerFromRequest(request: Request): string {
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;
@@ -121,12 +126,8 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   );
 }
 
-// GET /authorize
-export async function handleAuthorize(request: Request, env: Env): Promise<Response> {
-  if (!env.GITHUB_CLIENT_ID) {
-    return new Response("Server misconfiguration: GITHUB_CLIENT_ID not set", { status: 500 });
-  }
-
+// GET /authorize and GET /authorize/:provider
+export async function handleAuthorize(request: Request, env: Env, provider: string): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const clientId = params.get("client_id");
   const redirectUri = params.get("redirect_uri");
@@ -160,10 +161,16 @@ export async function handleAuthorize(request: Request, env: Env): Promise<Respo
     return oauthError("invalid_redirect_uri", "redirect_uri not registered for this client");
   }
 
+  const providerRedirect = buildProviderRedirect(provider, env, issuerFromRequest(request));
+  if (!providerRedirect) {
+    return oauthError("invalid_request", `Unsupported or misconfigured provider: ${provider}`);
+  }
+
   const internalState = crypto.randomUUID();
   await insertOAuthState(env.DB, {
     state: internalState,
     client_id: clientId,
+    provider,
     code_challenge: codeChallenge,
     code_challenge_method: codeChallengeMethod,
     redirect_uri: redirectUri,
@@ -171,13 +178,20 @@ export async function handleAuthorize(request: Request, env: Env): Promise<Respo
     expires_at: Date.now() + 10 * 60 * 1000, // 10 min in ms
   });
 
-  const githubUrl = new URL("https://github.com/login/oauth/authorize");
-  githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
-  githubUrl.searchParams.set("redirect_uri", `${issuerFromRequest(request)}/oauth/callback`);
-  githubUrl.searchParams.set("scope", "user:email");
-  githubUrl.searchParams.set("state", internalState);
+  providerRedirect.searchParams.set("state", internalState);
+  return Response.redirect(providerRedirect.toString(), 302);
+}
 
-  return Response.redirect(githubUrl.toString(), 302);
+function buildProviderRedirect(provider: string, env: Env, issuer: string): URL | null {
+  if (provider === "github") {
+    if (!env.GITHUB_CLIENT_ID) return null;
+    const url = new URL("https://github.com/login/oauth/authorize");
+    url.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+    url.searchParams.set("redirect_uri", `${issuer}/oauth/callback`);
+    url.searchParams.set("scope", "user:email");
+    return url;
+  }
+  return null;
 }
 
 // GET /oauth/callback
@@ -195,59 +209,10 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
     return new Response("Invalid or expired state", { status: 400 });
   }
 
-  // Exchange GitHub code for access token
-  const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-      redirect_uri: `${issuerFromRequest(request)}/oauth/callback`,
-    }),
-  });
+  const result = await fetchProviderIdentity(pending.provider, code, issuerFromRequest(request), env);
+  if (result instanceof Response) return result;
 
-  if (!tokenRes.ok) {
-    return new Response("GitHub token exchange failed", { status: 502 });
-  }
-
-  const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
-  if (!tokenData.access_token) {
-    return new Response(`GitHub auth error: ${tokenData.error ?? "unknown"}`, { status: 502 });
-  }
-
-  // Fetch GitHub user profile
-  const userRes = await fetch("https://api.github.com/user", {
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "grocery-store-mcp/1.0",
-    },
-  });
-
-  if (!userRes.ok) {
-    return new Response("Failed to fetch GitHub user", { status: 502 });
-  }
-
-  const ghUser = (await userRes.json()) as GitHubUser;
-
-  // Fetch verified emails — /user/emails is more reliable than the profile email field
-  const emailsRes = await fetch("https://api.github.com/user/emails", {
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "grocery-store-mcp/1.0",
-    },
-  });
-  let verifiedEmail: string | null = null;
-  if (emailsRes.ok) {
-    const emails = (await emailsRes.json()) as GitHubEmail[];
-    const primary = emails.find((e) => e.primary && e.verified);
-    verifiedEmail = primary?.email ?? emails.find((e) => e.verified)?.email ?? null;
-  }
-
-  const provider = "github";
-  const providerId = String(ghUser.id);
+  const { provider, providerId, verifiedEmail } = result;
 
   const identity = await getIdentity(env.DB, provider, providerId);
   let userId: string;
@@ -293,6 +258,64 @@ export async function handleCallback(request: Request, env: Env): Promise<Respon
   if (pending.original_state) callbackUrl.searchParams.set("state", pending.original_state);
 
   return Response.redirect(callbackUrl.toString(), 302);
+}
+
+async function fetchProviderIdentity(
+  provider: string,
+  code: string,
+  issuer: string,
+  env: Env,
+): Promise<(ProviderIdentity & { provider: string }) | Response> {
+  if (provider === "github") {
+    const result = await fetchGitHubIdentity(code, issuer, env);
+    if (result instanceof Response) return result;
+    return { provider, ...result };
+  }
+  return new Response(`Unsupported provider: ${provider}`, { status: 400 });
+}
+
+async function fetchGitHubIdentity(
+  code: string,
+  issuer: string,
+  env: Env,
+): Promise<ProviderIdentity | Response> {
+  const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: env.GITHUB_CLIENT_ID,
+      client_secret: env.GITHUB_CLIENT_SECRET,
+      code,
+      redirect_uri: `${issuer}/oauth/callback`,
+    }),
+  });
+  if (!tokenRes.ok) return new Response("GitHub token exchange failed", { status: 502 });
+
+  const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
+  if (!tokenData.access_token) {
+    return new Response(`GitHub auth error: ${tokenData.error ?? "unknown"}`, { status: 502 });
+  }
+
+  const ghHeaders = {
+    Authorization: `Bearer ${tokenData.access_token}`,
+    Accept: "application/vnd.github+json",
+    "User-Agent": "grocery-store-mcp/1.0",
+  };
+
+  const userRes = await fetch("https://api.github.com/user", { headers: ghHeaders });
+  if (!userRes.ok) return new Response("Failed to fetch GitHub user", { status: 502 });
+  const ghUser = (await userRes.json()) as GitHubUser;
+
+  // /user/emails is more reliable than the profile field (hidden when email is private)
+  let verifiedEmail: string | null = null;
+  const emailsRes = await fetch("https://api.github.com/user/emails", { headers: ghHeaders });
+  if (emailsRes.ok) {
+    const emails = (await emailsRes.json()) as GitHubEmail[];
+    const primary = emails.find((e) => e.primary && e.verified);
+    verifiedEmail = primary?.email ?? emails.find((e) => e.verified)?.email ?? null;
+  }
+
+  return { providerId: String(ghUser.id), verifiedEmail };
 }
 
 // POST /token

@@ -67,7 +67,14 @@ export default {
         return withCors(await handleRegister(request, env), origin, env);
       }
       if (method === "GET" && pathname === "/authorize") {
-        return withCors(await handleAuthorize(request, env), origin, env);
+        const provider = env.DEFAULT_OAUTH_PROVIDER ?? "github";
+        return withCors(await handleAuthorize(request, env, provider), origin, env);
+      }
+      if (method === "GET") {
+        const providerMatch = pathname.match(/^\/authorize\/([a-z][a-z0-9]*)$/);
+        if (providerMatch?.[1]) {
+          return withCors(await handleAuthorize(request, env, providerMatch[1]), origin, env);
+        }
       }
       if (method === "GET" && pathname === "/oauth/callback") {
         return withCors(await handleCallback(request, env), origin, env);

@@ -9,6 +9,7 @@ export interface OAuthClientRow {
 export interface OAuthStateRow {
   state: string;
   client_id: string;
+  provider: string;
   code_challenge: string;
   code_challenge_method: string;
   redirect_uri: string;
@@ -62,11 +63,12 @@ export async function insertOAuthClient(
 export async function insertOAuthState(db: D1Database, row: OAuthStateRow): Promise<void> {
   await db
     .prepare(
-      "INSERT INTO oauth_states (state, client_id, code_challenge, code_challenge_method, redirect_uri, original_state, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO oauth_states (state, client_id, provider, code_challenge, code_challenge_method, redirect_uri, original_state, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(
       row.state,
       row.client_id,
+      row.provider,
       row.code_challenge,
       row.code_challenge_method,
       row.redirect_uri,
