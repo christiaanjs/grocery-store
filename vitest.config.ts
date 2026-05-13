@@ -19,6 +19,8 @@ export default defineConfig(async () => {
             JWT_SECRET: "test-jwt-secret-for-vitest-at-least-32-chars",
             GITHUB_CLIENT_ID: "test-github-client-id",
             GITHUB_CLIENT_SECRET: "test-github-client-secret",
+            GOOGLE_CLIENT_ID: "test-google-client-id",
+            GOOGLE_CLIENT_SECRET: "test-google-client-secret",
             TEST_MIGRATIONS: migrations,
           },
         },
