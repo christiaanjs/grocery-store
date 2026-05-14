@@ -16,7 +16,7 @@ function formatItem(item: GroceryItem): string {
 }
 
 function itemKey(item: GroceryItem): string {
-  return `${item.name}|${item.unit ?? ""}`;
+  return item.name;
 }
 
 function toClipboardText(items: GroceryItem[], groupByCategory: boolean): string {

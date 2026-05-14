@@ -23,22 +23,22 @@ function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): GroceryItem
     pantryMap.set(p.name.toLowerCase(), p);
   }
 
-  // Aggregate ingredient quantities across all meals; key = "name_lower|unit_lower"
-  const aggregated = new Map<string, GroceryItem>();
+  // Pass 1: aggregate quantities for same name + same unit across all meals
+  const byNameUnit = new Map<string, GroceryItem>();
   for (const meal of meals) {
     const ingredients: MealIngredient[] = meal.ingredients
       ? (JSON.parse(meal.ingredients) as MealIngredient[])
       : [];
     for (const ing of ingredients) {
       const key = `${ing.name.toLowerCase()}|${(ing.unit ?? "").toLowerCase()}`;
-      const existing = aggregated.get(key);
+      const existing = byNameUnit.get(key);
       if (existing) {
         if (ing.quantity !== undefined) {
           existing.quantity = (existing.quantity ?? 0) + ing.quantity;
         }
       } else {
         const pantryItem = pantryMap.get(ing.name.toLowerCase());
-        aggregated.set(key, {
+        byNameUnit.set(key, {
           name: ing.name,
           quantity: ing.quantity,
           unit: ing.unit,
@@ -48,8 +48,22 @@ function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): GroceryItem
     }
   }
 
+  // Pass 2: merge entries with the same name but different units by dropping
+  // quantity/unit (we can't meaningfully add e.g. "200 ml" and "1 cup")
+  const byName = new Map<string, GroceryItem>();
+  for (const item of byNameUnit.values()) {
+    const key = item.name.toLowerCase();
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, { ...item });
+    } else {
+      existing.quantity = undefined;
+      existing.unit = undefined;
+    }
+  }
+
   // Keep only items that are absent from the pantry or out of stock
-  return [...aggregated.values()]
+  return [...byName.values()]
     .filter(ing => {
       const p = pantryMap.get(ing.name.toLowerCase());
       return !p || p.in_stock === 0;

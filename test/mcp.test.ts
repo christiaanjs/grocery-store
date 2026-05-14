@@ -553,7 +553,7 @@ describe("grocery_list", () => {
     expect(milk?.unit).toBe("ml");
   });
 
-  it("treats the same ingredient with different units as separate entries", async () => {
+  it("merges same-name ingredients with different units, dropping quantity/unit", async () => {
     await resultText(89, "meal_plan_set", {
       meals: [{ date: TUE, name: "pancakes", ingredients: [
         { name: "milk", quantity: 1, unit: "cup" },
@@ -561,9 +561,10 @@ describe("grocery_list", () => {
       ] }],
     });
     const text = await resultText(90, "grocery_list", { date_from: FROM, date_to: TO });
-    const items = JSON.parse(text) as Array<{ name: string; unit: string }>;
+    const items = JSON.parse(text) as Array<{ name: string; quantity?: number; unit?: string }>;
     const milkEntries = items.filter(i => i.name === "milk");
-    expect(milkEntries.length).toBe(2);
-    expect(milkEntries.map(i => i.unit).sort()).toEqual(["cup", "ml"]);
+    expect(milkEntries.length).toBe(1);
+    expect(milkEntries[0]?.quantity).toBeUndefined();
+    expect(milkEntries[0]?.unit).toBeUndefined();
   });
 });
