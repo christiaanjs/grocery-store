@@ -81,14 +81,26 @@ button {
 
 .login-screen h2 { font-size: 1.25rem; margin: 0; }
 
+.login-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 260px;
+}
+
 .login-btn {
   padding: 0.6rem 1.5rem;
-  background: #111;
   color: #fff;
   border: none;
   border-radius: 8px;
   font-size: 0.9rem;
+  cursor: pointer;
+  width: 100%;
 }
+
+.login-btn--github { background: #111; }
+.login-btn--google { background: #4285f4; }
 
 .error-banner {
   padding: 0.75rem 1rem;

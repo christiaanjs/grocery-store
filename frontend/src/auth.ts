@@ -106,7 +106,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
 // ── Auth flow entry points ────────────────────────────────────────────────
 
-export async function startLogin() {
+export async function startLogin(provider: "github" | "google") {
   const clientId = await ensureClientId();
   const verifier = await generateCodeVerifier();
   const challenge = await codeChallenge(verifier);
@@ -121,7 +121,7 @@ export async function startLogin() {
     state: crypto.randomUUID(),
   });
 
-  location.href = `${WORKER_BASE}/authorize?${params}`;
+  location.href = `${WORKER_BASE}/authorize/${provider}?${params}`;
 }
 
 export async function handleCallback(searchParams: URLSearchParams): Promise<void> {

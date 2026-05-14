@@ -83,9 +83,14 @@ export function App() {
       <div class="login-screen">
         <h2>Grocery Store</h2>
         {callbackError && <p class="error-banner">{callbackError}</p>}
-        <button class="login-btn" onClick={() => startLogin()}>
-          Sign in with GitHub
-        </button>
+        <div class="login-options">
+          <button class="login-btn login-btn--github" onClick={() => startLogin("github")}>
+            Sign in with GitHub
+          </button>
+          <button class="login-btn login-btn--google" onClick={() => startLogin("google")}>
+            Sign in with Google
+          </button>
+        </div>
       </div>
     );
   }

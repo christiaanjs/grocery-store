@@ -500,6 +500,19 @@ describe("GET /authorize/:provider routing", () => {
     expect(res.headers.get("location")).toContain("github.com/login/oauth/authorize");
   });
 
+  it("/authorize/google redirects to Google", async () => {
+    const { clientId } = await register();
+    const uri = encodeURIComponent(TEST_REDIRECT_URI);
+    const res = await SELF.fetch(
+      `http://localhost/authorize/google?response_type=code&client_id=${clientId}&redirect_uri=${uri}&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256`,
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toContain("accounts.google.com/o/oauth2/v2/auth");
+    expect(location).toContain("client_id=test-google-client-id");
+  });
+
   it("/authorize/unknown returns invalid_request for unsupported provider", async () => {
     const { clientId } = await register();
     const uri = encodeURIComponent(TEST_REDIRECT_URI);
@@ -664,15 +677,167 @@ describe("GET /oauth/callback", () => {
   });
 });
 
+// ── Google OAuth helpers ──────────────────────────────────────────────────
+
+function mockGoogleApis(
+  userId: string,
+  email: string | null,
+  emailVerified = true,
+): void {
+  vi.spyOn(globalThis, "fetch")
+    .mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ access_token: "google_test_token" }), {
+          headers: { "content-type": "application/json" },
+        }),
+    )
+    .mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({ sub: userId, email: email ?? "", email_verified: emailVerified }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+}
+
+async function beginGoogleAuthorizeFlow(): Promise<{
+  clientId: string;
+  verifier: string;
+  internalState: string;
+}> {
+  const verifier = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  const challenge = await computeChallenge(verifier);
+  const { clientId } = await register();
+  const uri = encodeURIComponent(TEST_REDIRECT_URI);
+  const res = await SELF.fetch(
+    `http://localhost/authorize/google?response_type=code&client_id=${clientId}&redirect_uri=${uri}&code_challenge=${challenge}&code_challenge_method=S256&state=cs`,
+    { redirect: "manual" },
+  );
+  expect(res.status).toBe(302);
+  const internalState = new URL(res.headers.get("Location")!).searchParams.get("state")!;
+  return { clientId, verifier, internalState };
+}
+
+async function doGoogleCallback(internalState: string): Promise<Response> {
+  return SELF.fetch(
+    `http://localhost/oauth/callback?code=test-code&state=${internalState}`,
+    { redirect: "manual" },
+  );
+}
+
+async function fullGoogleOAuthFlow(
+  googleUserId: string,
+  email: string | null,
+  emailVerified = true,
+) {
+  const { clientId, verifier, internalState } = await beginGoogleAuthorizeFlow();
+
+  mockGoogleApis(googleUserId, email, emailVerified);
+  const callbackRes = await doGoogleCallback(internalState);
+  expect(callbackRes.status).toBe(302);
+  const authCode = new URL(callbackRes.headers.get("Location")!).searchParams.get("code")!;
+
+  const tokenRes = await SELF.fetch("http://localhost/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      code: authCode,
+      redirect_uri: TEST_REDIRECT_URI,
+      code_verifier: verifier,
+    }).toString(),
+  });
+  expect(tokenRes.status).toBe(200);
+  const tokens = (await tokenRes.json()) as {
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+    expires_in: number;
+  };
+  return { clientId, tokens, sub: decodeJwtSub(tokens.access_token) };
+}
+
+// ── Callback & user resolution (Google API mocked) ────────────────────────
+
+describe("GET /oauth/callback (Google)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("creates a new user and redirects back with an auth code", async () => {
+    const { internalState } = await beginGoogleAuthorizeFlow();
+    mockGoogleApis("g8001", "user8001@example.com");
+    const res = await doGoogleCallback(internalState);
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("Location")!);
+    expect(loc.origin + loc.pathname).toBe(TEST_REDIRECT_URI);
+    expect(loc.searchParams.get("code")).toBeTruthy();
+    expect(loc.searchParams.get("state")).toBe("cs");
+  });
+
+  it("creates a user without email when Google returns email_verified=false", async () => {
+    const { internalState } = await beginGoogleAuthorizeFlow();
+    mockGoogleApis("g8002", "unverified@example.com", false);
+    const res = await doGoogleCallback(internalState);
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("Location")!).searchParams.get("code")).toBeTruthy();
+  });
+
+  it("returns the same user on repeated login with the same Google identity", async () => {
+    const { sub: sub1 } = await fullGoogleOAuthFlow("g8003", "user8003@example.com");
+    const { sub: sub2 } = await fullGoogleOAuthFlow("g8003", "user8003@example.com");
+    expect(sub1).toBe(sub2);
+  });
+
+  it("back-fills email on an existing user that had none", async () => {
+    const { sub: sub1 } = await fullGoogleOAuthFlow("g8004", null); // no email first login
+    const { sub: sub2 } = await fullGoogleOAuthFlow("g8004", "user8004@example.com");
+    expect(sub1).toBe(sub2);
+  });
+
+  it("links a new Google identity to an existing account with a matching verified email", async () => {
+    const sharedEmail = "shared8005@example.com";
+    const { sub: originalSub } = await fullGoogleOAuthFlow("g8005a", sharedEmail);
+    const { sub: linkedSub } = await fullGoogleOAuthFlow("g8005b", sharedEmail);
+    expect(linkedSub).toBe(originalSub);
+  });
+
+  it("links a Google identity to an account originally created via GitHub (cross-provider)", async () => {
+    const sharedEmail = "shared8006@example.com";
+    const { sub: githubSub } = await fullOAuthFlow(80061, [
+      { email: sharedEmail, primary: true, verified: true },
+    ]);
+    const { sub: googleSub } = await fullGoogleOAuthFlow("g8006", sharedEmail);
+    expect(googleSub).toBe(githubSub);
+  });
+});
+
 // ── End-to-end: full OAuth flow → authenticated MCP call ─────────────────
 
 describe("end-to-end: OAuth JWT → MCP", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("access token from the token endpoint authenticates MCP requests", async () => {
+  it("GitHub access token authenticates MCP requests", async () => {
     const { tokens } = await fullOAuthFlow(7001, [
       { email: "user7001@example.com", primary: true, verified: true },
     ]);
+    const res = await SELF.fetch("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${tokens.access_token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(res.status).toBe(200);
+    expect(
+      Array.isArray(((await res.json()) as { result?: { tools: unknown[] } }).result?.tools),
+    ).toBe(true);
+  });
+
+  it("Google access token authenticates MCP requests", async () => {
+    const { tokens } = await fullGoogleOAuthFlow("g7002", "user7002@example.com");
     const res = await SELF.fetch("http://localhost/mcp", {
       method: "POST",
       headers: {

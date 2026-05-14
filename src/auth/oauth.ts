@@ -32,6 +32,12 @@ interface GitHubEmail {
   verified: boolean;
 }
 
+interface GoogleUserInfo {
+  sub: string;
+  email: string;
+  email_verified: boolean;
+}
+
 interface ProviderIdentity {
   providerId: string;
   verifiedEmail: string | null;
@@ -198,6 +204,16 @@ function buildProviderRedirect(
     url.searchParams.set("scope", "user:email");
     return url;
   }
+  if (provider === "google") {
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return "misconfigured";
+    const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    url.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    url.searchParams.set("redirect_uri", `${issuer}/oauth/callback`);
+    url.searchParams.set("response_type", "code");
+    url.searchParams.set("scope", "openid email");
+    url.searchParams.set("access_type", "online");
+    return url;
+  }
   return "unsupported";
 }
 
@@ -292,6 +308,11 @@ async function fetchProviderIdentity(
     if (result instanceof Response) return result;
     return { provider, ...result };
   }
+  if (provider === "google") {
+    const result = await fetchGoogleIdentity(code, issuer, env);
+    if (result instanceof Response) return result;
+    return { provider, ...result };
+  }
   return new Response(`Unsupported provider: ${provider}`, { status: 400 });
 }
 
@@ -340,6 +361,43 @@ async function fetchGitHubIdentity(
   }
 
   return { providerId: String(ghUser.id), verifiedEmail };
+}
+
+async function fetchGoogleIdentity(
+  code: string,
+  issuer: string,
+  env: Env,
+): Promise<ProviderIdentity | Response> {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    return new Response("Google OAuth is not configured", { status: 500 });
+  }
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      code,
+      redirect_uri: `${issuer}/oauth/callback`,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!tokenRes.ok) return new Response("Google token exchange failed", { status: 502 });
+
+  const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
+  if (!tokenData.access_token) {
+    return new Response(`Google auth error: ${tokenData.error ?? "unknown"}`, { status: 502 });
+  }
+
+  const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+  });
+  if (!userRes.ok) return new Response("Failed to fetch Google user info", { status: 502 });
+
+  const googleUser = (await userRes.json()) as GoogleUserInfo;
+  const verifiedEmail = googleUser.email_verified ? googleUser.email.toLowerCase() : null;
+
+  return { providerId: googleUser.sub, verifiedEmail };
 }
 
 // POST /token

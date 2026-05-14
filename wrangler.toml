@@ -18,6 +18,8 @@ DEFAULT_OAUTH_PROVIDER = "github"
 # DEV_USER_ID
 # GITHUB_CLIENT_ID
 # GITHUB_CLIENT_SECRET
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
 # JWT_SECRET
 
 # ── Staging environment ───────────────────────────────────────────────────
@@ -40,6 +42,8 @@ DEFAULT_OAUTH_PROVIDER = "github"
 # Secrets for staging (set via: wrangler secret put <NAME> --env staging)
 # GITHUB_CLIENT_ID
 # GITHUB_CLIENT_SECRET
+# GOOGLE_CLIENT_ID
+# GOOGLE_CLIENT_SECRET
 # JWT_SECRET
 # DEV_TOKEN
 # DEV_USER_ID
