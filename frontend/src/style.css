@@ -512,6 +512,55 @@ button {
   border-bottom: none;
 }
 
+.grocery-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.grocery-item--selected {
+  background: #f0fdf4;
+}
+
+.grocery-item-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+
+.grocery-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.grocery-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.grocery-select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+
+.grocery-mark-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: #16a34a;
+  border: none;
+}
+
 .grocery-empty {
   color: #9ca3af;
   font-size: 0.9rem;

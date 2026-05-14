@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { getGroceryList } from "../api.ts";
+import { getGroceryList, bulkUpdatePantry } from "../api.ts";
 import type { GroceryItem } from "../api.ts";
 import { localDateStr } from "../hooks/useUrlState.ts";
 
@@ -49,10 +49,13 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [marking, setMarking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setSelected(new Set());
     try {
       setItems(await getGroceryList(from, to));
     } catch (err) {
@@ -77,40 +80,112 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
     }
   }
 
+  function toggleItem(key: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === items.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(items.map(itemKey)));
+    }
+  }
+
+  async function markAsBought() {
+    const toBuy = items.filter(i => selected.has(itemKey(i)));
+    if (toBuy.length === 0) return;
+    setMarking(true);
+    setError(null);
+    try {
+      await bulkUpdatePantry(
+        toBuy.map(i => ({
+          name: i.name,
+          ...(i.category != null ? { category: i.category } : {}),
+          ...(i.quantity !== undefined ? { quantity: i.quantity } : {}),
+          ...(i.unit !== undefined ? { unit: i.unit } : {}),
+          in_stock: true,
+        })),
+      );
+      await load();
+    } catch (err) {
+      onAuthError(err);
+      setError(err instanceof Error ? err.message : "Failed to update pantry");
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  function renderItem(item: GroceryItem) {
+    const key = itemKey(item);
+    return (
+      <li key={key} class={`grocery-item${selected.has(key) ? " grocery-item--selected" : ""}`}>
+        <input
+          type="checkbox"
+          class="grocery-item-check"
+          checked={selected.has(key)}
+          onChange={() => toggleItem(key)}
+        />
+        <span>{formatItem(item)}</span>
+      </li>
+    );
+  }
+
   function renderList() {
     if (items.length === 0) {
       return <p class="grocery-empty">No missing ingredients for this period.</p>;
     }
 
-    if (!groupByCategory) {
-      return (
-        <ul class="grocery-list">
-          {items.map(item => (
-            <li key={itemKey(item)}>{formatItem(item)}</li>
-          ))}
-        </ul>
-      );
-    }
+    const allSelected = selected.size === items.length;
 
-    const groups = new Map<string, GroceryItem[]>();
-    for (const item of items) {
-      const cat = item.category ?? "Uncategorized";
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat)!.push(item);
-    }
+    const list = groupByCategory ? (() => {
+      const groups = new Map<string, GroceryItem[]>();
+      for (const item of items) {
+        const cat = item.category ?? "Uncategorized";
+        if (!groups.has(cat)) groups.set(cat, []);
+        groups.get(cat)!.push(item);
+      }
+      return (
+        <>
+          {[...groups.entries()].map(([cat, catItems]) => (
+            <div key={cat} class="grocery-category">
+              <h3 class="grocery-category-name">{cat}</h3>
+              <ul class="grocery-list">{catItems.map(renderItem)}</ul>
+            </div>
+          ))}
+        </>
+      );
+    })() : (
+      <ul class="grocery-list">{items.map(renderItem)}</ul>
+    );
 
     return (
       <>
-        {[...groups.entries()].map(([cat, catItems]) => (
-          <div key={cat} class="grocery-category">
-            <h3 class="grocery-category-name">{cat}</h3>
-            <ul class="grocery-list">
-              {catItems.map(item => (
-                <li key={itemKey(item)}>{formatItem(item)}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <div class="grocery-selection-bar">
+          <label class="grocery-select-all">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+            />
+            {allSelected ? "Deselect all" : "Select all"}
+          </label>
+          {selected.size > 0 && (
+            <button
+              class="btn-primary grocery-mark-btn"
+              onClick={() => void markAsBought()}
+              disabled={marking}
+            >
+              {marking ? "Updating…" : `Mark as bought (${selected.size})`}
+            </button>
+          )}
+        </div>
+        {list}
       </>
     );
   }
