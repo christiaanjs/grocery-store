@@ -430,6 +430,143 @@ button {
   transform: scale(1.15);
 }
 
+/* ── Grocery list view ──────────────────────────────────────────────────── */
+
+.grocery-view {
+  max-width: 640px;
+}
+
+.grocery-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.grocery-date-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.grocery-date-input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.grocery-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.grocery-copy-btn {
+  margin-left: auto;
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.grocery-category {
+  margin-bottom: 1.25rem;
+}
+
+.grocery-category-name {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+
+.grocery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  overflow: hidden;
+}
+
+.grocery-list li {
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.9rem;
+  color: #1a1a1a;
+}
+
+.grocery-list li:last-child {
+  border-bottom: none;
+}
+
+.grocery-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.grocery-item--selected {
+  background: #f0fdf4;
+}
+
+.grocery-item-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+
+.grocery-selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.grocery-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  color: #374151;
+  cursor: pointer;
+}
+
+.grocery-select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+
+.grocery-mark-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: #16a34a;
+  border: none;
+}
+
+.grocery-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
 /* ── Misc ───────────────────────────────────────────────────────────────── */
 
 .loading {

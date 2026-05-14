@@ -81,6 +81,7 @@ describe("tools/list", () => {
       "meal_feedback_set",
       "meal_feedback_get",
       "meal_search",
+      "grocery_list",
     ]);
   });
 
@@ -478,5 +479,92 @@ describe("meal feedback and search", () => {
     // Feedback is nested; snapshot must reflect the risotto version, not the old pasta one
     expect(mon!.feedback?.meal_snapshot.name).toBe("risotto");
     expect(mon!.feedback?.rating).toBe(5);
+  });
+});
+
+// ── Grocery list ──────────────────────────────────────────────────────────
+
+describe("grocery_list", () => {
+  // Uses a separate week (2026-06-01 to 2026-06-07) to avoid interfering with
+  // the meal plan tests above. Pantry state from the pantry tests is still live:
+  //   eggs  — dairy,  in_stock=1
+  //   milk  — dairy,  in_stock=0  (marked out)
+  //   olive oil — pantry, in_stock=1
+
+  const FROM = "2026-06-01";
+  const TO = "2026-06-07";
+  const MON = "2026-06-01";
+  const TUE = "2026-06-02";
+
+  it("returns empty list when no meals are planned", async () => {
+    const text = await resultText(80, "grocery_list", { date_from: FROM, date_to: TO });
+    expect(JSON.parse(text)).toEqual([]);
+  });
+
+  it("excludes ingredients that are in stock in the pantry", async () => {
+    await resultText(81, "meal_plan_set", {
+      meals: [{ date: MON, name: "omelette", ingredients: [{ name: "eggs", quantity: 3, unit: "count" }] }],
+    });
+    const text = await resultText(82, "grocery_list", { date_from: FROM, date_to: TO });
+    const items = JSON.parse(text) as Array<{ name: string }>;
+    expect(items.every(i => i.name !== "eggs")).toBe(true);
+  });
+
+  it("includes ingredients that are out of stock", async () => {
+    await resultText(83, "meal_plan_set", {
+      meals: [{ date: MON, name: "omelette", ingredients: [
+        { name: "eggs", quantity: 3, unit: "count" },
+        { name: "milk", quantity: 200, unit: "ml" },
+      ] }],
+    });
+    const text = await resultText(84, "grocery_list", { date_from: FROM, date_to: TO });
+    const items = JSON.parse(text) as Array<{ name: string; quantity: number; unit: string; category: string }>;
+    const milk = items.find(i => i.name === "milk");
+    expect(milk).toBeDefined();
+    expect(milk?.quantity).toBe(200);
+    expect(milk?.unit).toBe("ml");
+    expect(milk?.category).toBe("dairy");
+    expect(items.every(i => i.name !== "eggs")).toBe(true);
+  });
+
+  it("includes ingredients not present in the pantry at all", async () => {
+    await resultText(85, "meal_plan_set", {
+      meals: [{ date: TUE, name: "salad", ingredients: [{ name: "spinach", quantity: 100, unit: "g" }] }],
+    });
+    const text = await resultText(86, "grocery_list", { date_from: FROM, date_to: TO });
+    const items = JSON.parse(text) as Array<{ name: string; category: string | null }>;
+    const spinach = items.find(i => i.name === "spinach");
+    expect(spinach).toBeDefined();
+    expect(spinach?.category).toBeNull();
+  });
+
+  it("aggregates the same ingredient across multiple meals", async () => {
+    // MON already has milk 200ml; add TUE with milk 150ml
+    await resultText(87, "meal_plan_set", {
+      meals: [{ date: TUE, name: "pancakes", ingredients: [
+        { name: "milk", quantity: 150, unit: "ml" },
+        { name: "spinach", quantity: 100, unit: "g" },
+      ] }],
+    });
+    const text = await resultText(88, "grocery_list", { date_from: FROM, date_to: TO });
+    const items = JSON.parse(text) as Array<{ name: string; quantity: number; unit: string }>;
+    const milk = items.find(i => i.name === "milk");
+    expect(milk?.quantity).toBe(350); // 200 + 150
+    expect(milk?.unit).toBe("ml");
+  });
+
+  it("merges same-name ingredients with different units, dropping quantity/unit", async () => {
+    await resultText(89, "meal_plan_set", {
+      meals: [{ date: TUE, name: "pancakes", ingredients: [
+        { name: "milk", quantity: 1, unit: "cup" },
+        { name: "milk", quantity: 150, unit: "ml" },
+      ] }],
+    });
+    const text = await resultText(90, "grocery_list", { date_from: FROM, date_to: TO });
+    const items = JSON.parse(text) as Array<{ name: string; quantity?: number; unit?: string }>;
+    const milkEntries = items.filter(i => i.name === "milk");
+    expect(milkEntries.length).toBe(1);
+    expect(milkEntries[0]?.quantity).toBeUndefined();
+    expect(milkEntries[0]?.unit).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import { getValidToken, clearTokens } from "./auth.ts";
-export type { PantryItem, MealIngredient, MealEntryData } from "../../types/shared.ts";
-import type { PantryItem, MealEntryData } from "../../types/shared.ts";
+export type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
+import type { PantryItem, MealEntryData, GroceryItem } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
 
@@ -116,3 +116,6 @@ export const getMealFeedback = (date: string) =>
 
 export const setMealFeedback = (feedback: { date: string; rating?: number; notes?: string; tags?: string[] }) =>
   mcpCall<MealFeedback>("meal_feedback_set", feedback as Record<string, unknown>);
+
+export const getGroceryList = (dateFrom: string, dateTo: string) =>
+  mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo });
