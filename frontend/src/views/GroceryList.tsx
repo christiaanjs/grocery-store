@@ -1,14 +1,7 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { getMealPlan, listPantryItems } from "../api.ts";
-import type { PantryItem } from "../api.ts";
+import { getGroceryList } from "../api.ts";
+import type { GroceryItem } from "../api.ts";
 import { localDateStr } from "../hooks/useUrlState.ts";
-
-interface GroceryItem {
-  name: string;
-  quantity?: number;
-  unit?: string;
-  category: string | null;
-}
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date);
@@ -17,12 +10,8 @@ function addDays(date: Date, days: number): Date {
 }
 
 function formatItem(item: GroceryItem): string {
-  if (item.quantity !== undefined && item.unit) {
-    return `${item.name} (${item.quantity} ${item.unit})`;
-  }
-  if (item.quantity !== undefined) {
-    return `${item.name} (${item.quantity})`;
-  }
+  if (item.quantity !== undefined && item.unit) return `${item.name} (${item.quantity} ${item.unit})`;
+  if (item.quantity !== undefined) return `${item.name} (${item.quantity})`;
   return item.name;
 }
 
@@ -30,72 +19,22 @@ function itemKey(item: GroceryItem): string {
   return `${item.name}|${item.unit ?? ""}`;
 }
 
-function buildGroceryList(
-  meals: Awaited<ReturnType<typeof getMealPlan>>,
-  pantry: PantryItem[],
-): GroceryItem[] {
-  const pantryMap = new Map<string, PantryItem>();
-  for (const p of pantry) {
-    pantryMap.set(p.name.toLowerCase(), p);
-  }
-
-  // Aggregate ingredients: key = "name_lower|unit_lower"
-  const aggregated = new Map<string, GroceryItem>();
-  for (const meal of meals) {
-    for (const ing of meal.ingredients ?? []) {
-      const key = `${ing.name.toLowerCase()}|${(ing.unit ?? "").toLowerCase()}`;
-      const existing = aggregated.get(key);
-      if (existing) {
-        if (ing.quantity !== undefined) {
-          existing.quantity = (existing.quantity ?? 0) + ing.quantity;
-        }
-      } else {
-        const pantryItem = pantryMap.get(ing.name.toLowerCase());
-        aggregated.set(key, {
-          name: ing.name,
-          quantity: ing.quantity,
-          unit: ing.unit,
-          category: pantryItem?.category ?? null,
-        });
-      }
-    }
-  }
-
-  // Keep only items missing from pantry or out of stock
-  return [...aggregated.values()].filter(ing => {
-    const p = pantryMap.get(ing.name.toLowerCase());
-    return !p || p.in_stock === 0;
-  });
-}
-
-function sortItems(items: GroceryItem[], groupByCategory: boolean): GroceryItem[] {
-  return [...items].sort((a, b) => {
-    if (groupByCategory) {
-      const catCmp = (a.category ?? "Uncategorized").localeCompare(b.category ?? "Uncategorized");
-      if (catCmp !== 0) return catCmp;
-    }
-    return a.name.localeCompare(b.name);
-  });
-}
-
 function toClipboardText(items: GroceryItem[], groupByCategory: boolean): string {
   if (items.length === 0) return "";
 
-  const sorted = sortItems(items, groupByCategory);
-
   if (!groupByCategory) {
-    return sorted.map(item => formatItem(item)).join("\n");
+    return items.map(formatItem).join("\n");
   }
 
   const groups = new Map<string, GroceryItem[]>();
-  for (const item of sorted) {
+  for (const item of items) {
     const cat = item.category ?? "Uncategorized";
     if (!groups.has(cat)) groups.set(cat, []);
     groups.get(cat)!.push(item);
   }
 
   return [...groups.entries()]
-    .map(([cat, catItems]) => `${cat}\n${catItems.map(i => formatItem(i)).join("\n")}`)
+    .map(([cat, catItems]) => `${cat}\n${catItems.map(formatItem).join("\n")}`)
     .join("\n\n");
 }
 
@@ -115,8 +54,7 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
     setLoading(true);
     setError(null);
     try {
-      const [meals, pantry] = await Promise.all([getMealPlan(from, to), listPantryItems()]);
-      setItems(buildGroceryList(meals, pantry));
+      setItems(await getGroceryList(from, to));
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -130,27 +68,24 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   }, [load]);
 
   async function copyToClipboard() {
-    const text = toClipboardText(items, groupByCategory);
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(toClipboardText(items, groupByCategory));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard API unavailable — nothing to do
+      // Clipboard API unavailable
     }
   }
 
-  const sorted = sortItems(items, groupByCategory);
-
   function renderList() {
-    if (sorted.length === 0) {
+    if (items.length === 0) {
       return <p class="grocery-empty">No missing ingredients for this period.</p>;
     }
 
     if (!groupByCategory) {
       return (
         <ul class="grocery-list">
-          {sorted.map(item => (
+          {items.map(item => (
             <li key={itemKey(item)}>{formatItem(item)}</li>
           ))}
         </ul>
@@ -158,7 +93,7 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
     }
 
     const groups = new Map<string, GroceryItem[]>();
-    for (const item of sorted) {
+    for (const item of items) {
       const cat = item.category ?? "Uncategorized";
       if (!groups.has(cat)) groups.set(cat, []);
       groups.get(cat)!.push(item);

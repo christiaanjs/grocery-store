@@ -35,3 +35,10 @@ export interface MealEntryData {
   ingredients?: MealIngredient[];
   steps?: string[];
 }
+
+export interface GroceryItem {
+  name: string;
+  quantity?: number;
+  unit?: string;
+  category: string | null;
+}
