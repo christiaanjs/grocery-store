@@ -78,13 +78,13 @@ function sortItems(items: GroceryItem[], groupByCategory: boolean): GroceryItem[
   });
 }
 
-function toMarkdown(items: GroceryItem[], groupByCategory: boolean): string {
-  if (items.length === 0) return "*(no missing ingredients)*";
+function toClipboardText(items: GroceryItem[], groupByCategory: boolean): string {
+  if (items.length === 0) return "";
 
   const sorted = sortItems(items, groupByCategory);
 
   if (!groupByCategory) {
-    return sorted.map(item => `- ${formatItem(item)}`).join("\n");
+    return sorted.map(item => formatItem(item)).join("\n");
   }
 
   const groups = new Map<string, GroceryItem[]>();
@@ -95,7 +95,7 @@ function toMarkdown(items: GroceryItem[], groupByCategory: boolean): string {
   }
 
   return [...groups.entries()]
-    .map(([cat, catItems]) => `## ${cat}\n${catItems.map(i => `- ${formatItem(i)}`).join("\n")}`)
+    .map(([cat, catItems]) => `${cat}\n${catItems.map(i => formatItem(i)).join("\n")}`)
     .join("\n\n");
 }
 
@@ -130,9 +130,9 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   }, [load]);
 
   async function copyToClipboard() {
-    const md = toMarkdown(items, groupByCategory);
+    const text = toClipboardText(items, groupByCategory);
     try {
-      await navigator.clipboard.writeText(md);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -214,7 +214,7 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
           onClick={() => void copyToClipboard()}
           disabled={items.length === 0}
         >
-          {copied ? "Copied!" : "Copy as Markdown"}
+          {copied ? "Copied!" : "Copy grocery list"}
         </button>
       </div>
 
