@@ -5,7 +5,7 @@ const KEEP_API_URL = "https://www.googleapis.com/notes/v1/changes";
 
 function tsString(nowMs: number): string {
   // Keep API uses microsecond precision: 2024-01-01T00:00:00.000000Z
-  return new Date(nowMs).toISOString().replace(/(\.\d{3})Z$/, "$1000Z");
+  return new Date(nowMs).toISOString().replace(/(\.(\d{3}))Z$/, "$1000Z");
 }
 
 function generateNodeId(nowMs: number): string {
@@ -120,5 +120,5 @@ export async function createGroceryList(
   // so this is unambiguous regardless of the client-generated ID.
   const listNode = data.nodes?.find(n => n.type === "LIST");
   const serverId = listNode?.serverId ?? listId;
-  return { nodeId: serverId, url: `https://keep.google.com/u/0/#list/${serverId}` };
+  return { nodeId: serverId, url: `https://keep.google.com/u/0/#NOTE/${serverId}` };
 }

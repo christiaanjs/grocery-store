@@ -188,7 +188,7 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
                   <p class="integration-detail">
                     Last export:{" "}
                     <a
-                      href={`https://keep.google.com/u/0/#list/${status.keep_list_id}`}
+                      href={`https://keep.google.com/u/0/#NOTE/${status.keep_list_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       class="keep-link"
