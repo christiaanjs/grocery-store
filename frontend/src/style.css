@@ -12,7 +12,7 @@ button {
   cursor: pointer;
 }
 
-/* ── Layout ─────────────────────────────────────────────────────────────── */
+/* ── Layout ──────────────────────────────────────────────────────────────────────────────────── */
 
 .app-header {
   background: #fff;
@@ -68,7 +68,7 @@ button {
   margin: 0 auto;
 }
 
-/* ── Login screen ────────────────────────────────────────────────────────── */
+/* ── Login screen ──────────────────────────────────────────────────────────────────────────── */
 
 .login-screen {
   display: flex;
@@ -113,7 +113,7 @@ button {
   text-align: center;
 }
 
-/* ── Pantry view ────────────────────────────────────────────────────────── */
+/* ── Pantry view ───────────────────────────────────────────────────────────────────────────── */
 
 .pantry-toolbar {
   display: flex;
@@ -253,7 +253,7 @@ button {
   font-size: 0.8rem;
 }
 
-/* ── Meal plan view ─────────────────────────────────────────────────────── */
+/* ── Meal plan view ───────────────────────────────────────────────────────────────────────────── */
 
 .meal-plan-view {
   background: #fff;
@@ -273,7 +273,7 @@ button {
   padding: 1px 4px;
 }
 
-/* ── Modal ──────────────────────────────────────────────────────────────── */
+/* ── Modal ────────────────────────────────────────────────────────────────────────────────────── */
 
 .modal-backdrop {
   position: fixed;
@@ -378,7 +378,7 @@ button {
   border: 1px solid #fca5a5;
 }
 
-/* ── Star rating ─────────────────────────────────────────────────────────── */
+/* ── Star rating ────────────────────────────────────────────────────────────────────────────────────────── */
 
 .feedback-section {
   margin-top: 1.25rem;
@@ -430,7 +430,7 @@ button {
   transform: scale(1.15);
 }
 
-/* ── Grocery list view ──────────────────────────────────────────────────── */
+/* ── Grocery list view ─────────────────────────────────────────────────────────────────────────── */
 
 .grocery-view {
   max-width: 640px;
@@ -476,6 +476,27 @@ button {
   padding: 0.45rem 1rem;
   border-radius: 6px;
   font-size: 0.875rem;
+}
+
+.grocery-keep-btn {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.grocery-keep-result {
+  font-size: 0.875rem;
+  color: #16a34a;
+  margin: 0 0 1rem;
+}
+
+.keep-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.keep-link:hover {
+  text-decoration: underline;
 }
 
 .grocery-category {
@@ -567,7 +588,124 @@ button {
   margin: 0;
 }
 
-/* ── Misc ───────────────────────────────────────────────────────────────── */
+/* ── Integrations view ─────────────────────────────────────────────────────────────────────────── */
+
+.integrations-view {
+  max-width: 600px;
+}
+
+.integrations-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1.25rem;
+}
+
+.integrations-banner {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.integrations-banner--success {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
+.integrations-banner--error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+}
+
+.integration-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  overflow: hidden;
+}
+
+.integration-card-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.integration-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #4285f4;
+  color: #fff;
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.integration-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.integration-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.2rem;
+}
+
+.integration-description {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.status-badge {
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.status-badge--connected {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-badge--disconnected {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.integration-card-body {
+  padding: 1rem 1.25rem;
+}
+
+.integration-detail {
+  font-size: 0.875rem;
+  color: #374151;
+  margin: 0 0 0.75rem;
+}
+
+.integration-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.integration-actions button {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+/* ── Misc ─────────────────────────────────────────────────────────────────────────────────────── */
 
 .loading {
   color: #9ca3af;

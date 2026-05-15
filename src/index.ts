@@ -9,6 +9,14 @@ import {
   handleCallback,
   handleToken,
 } from "./auth/oauth.ts";
+import {
+  handleGetIntegrationStatus,
+  handleGoogleAuthorize,
+  handleGoogleCallback,
+  handleDeleteIntegration,
+  handleUpdateIntegration,
+  handleExportToKeep,
+} from "./routes/integrations.ts";
 
 function isAllowedOrigin(origin: string, allowedOrigin: string, allowSubdomains: boolean): boolean {
   if (!allowedOrigin || !origin) return false;
@@ -28,7 +36,7 @@ function corsHeaders(origin: string, env: Env): Record<string, string> {
   if (!isAllowedOrigin(origin, env.ALLOWED_ORIGIN, env.ALLOW_ORIGIN_SUBDOMAINS === "true")) return {};
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Dev-Token",
     "Access-Control-Max-Age": "86400",
   };
@@ -82,6 +90,27 @@ export default {
       if (method === "POST" && pathname === "/token") {
         return withCors(await handleToken(request, env), origin, env);
       }
+    }
+
+    // ── Google Keep integration routes ───────────────────────────────────
+    if (method === "GET" && pathname === "/integrations/google") {
+      return withCors(await handleGetIntegrationStatus(request, env), origin, env);
+    }
+    if (method === "POST" && pathname === "/integrations/google/authorize") {
+      return withCors(await handleGoogleAuthorize(request, env), origin, env);
+    }
+    if (method === "GET" && pathname === "/integrations/google/callback") {
+      // Not wrapped in CORS — this is a browser redirect from Google
+      return handleGoogleCallback(request, env);
+    }
+    if (method === "DELETE" && pathname === "/integrations/google") {
+      return withCors(await handleDeleteIntegration(request, env), origin, env);
+    }
+    if (method === "PUT" && pathname === "/integrations/google") {
+      return withCors(await handleUpdateIntegration(request, env), origin, env);
+    }
+    if (method === "POST" && pathname === "/integrations/google/keep/export") {
+      return withCors(await handleExportToKeep(request, env), origin, env);
     }
 
     if (method === "POST" && pathname === "/mcp") {
