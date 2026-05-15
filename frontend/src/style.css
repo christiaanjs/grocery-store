@@ -12,7 +12,7 @@ button {
   cursor: pointer;
 }
 
-/* ── Layout ──────────────────────────────────────────────────────────────────────────────────── */
+/* ── Layout ───────────────────────────────────────────────────────────────────────────────────── */
 
 .app-header {
   background: #fff;
@@ -68,7 +68,7 @@ button {
   margin: 0 auto;
 }
 
-/* ── Login screen ──────────────────────────────────────────────────────────────────────────── */
+/* ── Login screen ────────────────────────────────────────────────────────────────────── */
 
 .login-screen {
   display: flex;
@@ -113,7 +113,7 @@ button {
   text-align: center;
 }
 
-/* ── Pantry view ───────────────────────────────────────────────────────────────────────────── */
+/* ── Pantry view ─────────────────────────────────────────────────────────────────────── */
 
 .pantry-toolbar {
   display: flex;
@@ -253,7 +253,7 @@ button {
   font-size: 0.8rem;
 }
 
-/* ── Meal plan view ───────────────────────────────────────────────────────────────────────────── */
+/* ── Meal plan view ────────────────────────────────────────────────────────────────────────── */
 
 .meal-plan-view {
   background: #fff;
@@ -273,7 +273,7 @@ button {
   padding: 1px 4px;
 }
 
-/* ── Modal ────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Modal ──────────────────────────────────────────────────────────────────────────────────────── */
 
 .modal-backdrop {
   position: fixed;
@@ -378,7 +378,7 @@ button {
   border: 1px solid #fca5a5;
 }
 
-/* ── Star rating ────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Star rating ────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 .feedback-section {
   margin-top: 1.25rem;
@@ -430,7 +430,7 @@ button {
   transform: scale(1.15);
 }
 
-/* ── Grocery list view ─────────────────────────────────────────────────────────────────────────── */
+/* ── Grocery list view ──────────────────────────────────────────────────────────────────────── */
 
 .grocery-view {
   max-width: 640px;
@@ -588,7 +588,7 @@ button {
   margin: 0;
 }
 
-/* ── Integrations view ─────────────────────────────────────────────────────────────────────────── */
+/* ── Integrations view ──────────────────────────────────────────────────────────────────────── */
 
 .integrations-view {
   max-width: 600px;
@@ -697,9 +697,85 @@ button {
   margin-top: 1rem;
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .integration-actions button {
+  padding: 0.45rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.manual-token-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.manual-token-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: #374151;
+}
+
+.manual-token-desc {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0 0 0.75rem;
+}
+
+.manual-token-steps {
+  font-size: 0.875rem;
+  color: #374151;
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+  line-height: 1.7;
+}
+
+.manual-token-steps a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.manual-token-steps a:hover {
+  text-decoration: underline;
+}
+
+.manual-token-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.manual-token-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.manual-token-input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: #1a1a1a;
+}
+
+.manual-token-input:focus {
+  outline: none;
+  border-color: #6b7280;
+}
+
+.manual-token-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.manual-token-actions button {
   padding: 0.45rem 1rem;
   border-radius: 6px;
   font-size: 0.875rem;
