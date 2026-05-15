@@ -9,8 +9,11 @@ const KEEP_SCOPES =
 
 function parseAuthResponse(text: string): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
+  // Google returns \r\n line endings; split on both and trim whitespace so
+  // values never include a trailing \r character.
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
     const idx = line.indexOf("=");
     if (idx === -1) continue;
     result[line.slice(0, idx)] = line.slice(idx + 1);
@@ -32,7 +35,19 @@ async function performAuthRequest(
     },
     body: body.toString(),
   });
-  return parseAuthResponse(await res.text());
+  const text = await res.text();
+  const parsed = parseAuthResponse(text);
+  if (parsed["Error"]) {
+    console.error("[gpsoauth] Android auth error response:", {
+      httpStatus: res.status,
+      error: parsed["Error"],
+      info: parsed["Info"],
+      detail: parsed["Detail"],
+      userMessage: parsed["UserMessage"],
+      cause: parsed["Cause"],
+    });
+  }
+  return parsed;
 }
 
 // Exchange a Google OAuth access token for a long-lived master token.
@@ -85,6 +100,13 @@ export async function getKeepAuthToken(
     google_play_services_version: 240913000,
   });
   const token = res["Auth"] ?? res["Token"];
-  if (!token) throw new Error(res["Error"] ?? "Failed to get Keep auth token");
+  if (!token) {
+    const knownFields = ["Error", "Info", "Detail", "UserMessage", "Cause"];
+    const context = knownFields
+      .filter(k => res[k])
+      .map(k => `${k}=${res[k]}`)
+      .join(", ");
+    throw new Error(`${res["Error"] ?? "no auth token in response"}${context ? ` (${context})` : ""}`);
+  }
   return token;
 }

@@ -116,10 +116,12 @@ export async function handleGoogleCallback(
     }),
   });
   if (!tokenRes.ok) {
+    console.error("[integrations] OAuth token exchange failed:", tokenRes.status, await tokenRes.text().catch(() => ""));
     return Response.redirect(`${frontendBase}/integrations?error=token_exchange_failed`, 302);
   }
   const tokenData = (await tokenRes.json()) as { access_token?: string; error?: string };
   if (!tokenData.access_token) {
+    console.error("[integrations] No access_token in OAuth response:", tokenData);
     return Response.redirect(`${frontendBase}/integrations?error=no_access_token`, 302);
   }
 
@@ -128,6 +130,7 @@ export async function handleGoogleCallback(
     headers: { Authorization: `Bearer ${tokenData.access_token}` },
   });
   if (!userInfoRes.ok) {
+    console.error("[integrations] userinfo fetch failed:", userInfoRes.status);
     return Response.redirect(`${frontendBase}/integrations?error=userinfo_failed`, 302);
   }
   const userInfo = (await userInfoRes.json()) as { email: string; email_verified: boolean };
@@ -138,6 +141,7 @@ export async function handleGoogleCallback(
 
   // Verify the Google account email matches the user's account email
   if (user.email && user.email.toLowerCase() !== googleEmail) {
+    console.error("[integrations] email mismatch: account=%s google=%s", user.email, googleEmail);
     return Response.redirect(
       `${frontendBase}/integrations?error=email_mismatch&google_email=${encodeURIComponent(googleEmail)}`,
       302,
@@ -151,6 +155,7 @@ export async function handleGoogleCallback(
     const result = await exchangeToken(googleEmail, tokenData.access_token, androidId);
     if (!result["Token"]) {
       const errMsg = result["Error"] ?? "no_token";
+      console.error("[integrations] exchangeToken returned no Token. Error=%s Info=%s", result["Error"], result["Info"]);
       return Response.redirect(
         `${frontendBase}/integrations?error=master_token_error&detail=${encodeURIComponent(errMsg)}&google_email=${encodeURIComponent(googleEmail)}`,
         302,
@@ -159,6 +164,7 @@ export async function handleGoogleCallback(
     masterToken = result["Token"];
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
+    console.error("[integrations] exchangeToken threw:", msg);
     return Response.redirect(
       `${frontendBase}/integrations?error=master_token_failed&detail=${encodeURIComponent(msg)}&google_email=${encodeURIComponent(googleEmail)}`,
       302,
@@ -166,6 +172,7 @@ export async function handleGoogleCallback(
   }
 
   if (!env.INTEGRATION_SECRET) {
+    console.error("[integrations] INTEGRATION_SECRET is not configured");
     return Response.redirect(`${frontendBase}/integrations?error=not_configured`, 302);
   }
 
@@ -211,6 +218,7 @@ export async function handleManualToken(
   const auth = await authenticate(request, env);
   if (!auth) return new Response("Unauthorized", { status: 401 });
   if (!env.INTEGRATION_SECRET) {
+    console.error("[integrations] INTEGRATION_SECRET is not configured");
     return json({ error: "Integration secret not configured" }, 500);
   }
 
@@ -225,15 +233,18 @@ export async function handleManualToken(
   const googleEmail = body.email.toLowerCase().trim();
 
   if (user.email && user.email.toLowerCase() !== googleEmail) {
+    console.error("[integrations] manual-token email mismatch: account=%s provided=%s", user.email, googleEmail);
     return json({ error: "The Google account email does not match your account email" }, 400);
   }
 
-  // Verify the master token works before storing it
+  // Verify the master token works by attempting to get a Keep auth token.
+  // This catches typos and expired tokens before we store them.
   const androidId = androidIdFromUserId(user.id);
   try {
     await getKeepAuthToken(googleEmail, body.master_token, androidId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
+    console.error("[integrations] manual-token: getKeepAuthToken failed for %s: %s", googleEmail, msg);
     return json({ error: `Master token verification failed: ${msg}` }, 400);
   }
 
@@ -250,6 +261,7 @@ export async function handleExportToKeep(
   const auth = await authenticate(request, env);
   if (!auth) return new Response("Unauthorized", { status: 401 });
   if (!env.INTEGRATION_SECRET) {
+    console.error("[integrations] INTEGRATION_SECRET is not configured");
     return json({ error: "Integration secret not configured" }, 500);
   }
 
@@ -268,7 +280,8 @@ export async function handleExportToKeep(
       integration.encrypted_token,
       integration.token_iv,
     );
-  } catch {
+  } catch (err) {
+    console.error("[integrations] failed to decrypt master token:", err);
     return json({ error: "Failed to decrypt credentials" }, 500);
   }
 
@@ -282,6 +295,7 @@ export async function handleExportToKeep(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
+    console.error("[integrations] getKeepAuthToken failed during export for %s: %s", integration.google_email, msg);
     return json({ error: "Keep authentication failed", detail: msg }, 502);
   }
 
@@ -305,6 +319,7 @@ export async function handleExportToKeep(
     return json({ success: true, node_id: result.nodeId, url: result.url });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
+    console.error("[integrations] createGroceryList failed:", msg);
     return json({ error: "Failed to create Keep note", detail: msg }, 502);
   }
 }
