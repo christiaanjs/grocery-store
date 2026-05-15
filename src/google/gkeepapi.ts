@@ -5,7 +5,7 @@ const KEEP_API_URL = "https://www.googleapis.com/notes/v1/changes";
 
 function tsString(nowMs: number): string {
   // Keep API uses microsecond precision: 2024-01-01T00:00:00.000000Z
-  return new Date(nowMs).toISOString().replace(/(\.\d{3})Z$/, "$1000Z");
+  return new Date(nowMs).toISOString().replace(/(\.(\d{3}))Z$/, "$1000Z");
 }
 
 function generateNodeId(nowMs: number): string {
@@ -40,7 +40,7 @@ export async function createGroceryList(
   authToken: string,
   title: string,
   items: GroceryItem[],
-): Promise<{ nodeId: string; url: string }> {
+): Promise<{ nodeId: string; url: string | undefined }> {
   const nowMs = Date.now();
   const ts = tsString(nowMs);
   const sessionId = `s--${nowMs}--${Math.floor(1000000000 + Math.random() * 9000000000)}`;
@@ -116,15 +116,19 @@ export async function createGroceryList(
     nodes?: Array<{ id: string; serverId?: string; type?: string }>;
   };
 
-  // The API returns one LIST node in the response. Prefer serverId (the
-  // server-assigned ID); fall back to id in case the server overwrites the
-  // client-generated id field instead of populating serverId separately.
-  const listNode = data.nodes?.find(n => n.type === "LIST");
-  if (!listNode) {
-    console.error("[gkeepapi] No LIST node in response nodes:", JSON.stringify(data.nodes));
-  } else if (!listNode.serverId) {
-    console.warn("[gkeepapi] LIST node has no serverId, falling back to id field:", listNode.id);
+  // The response node keeps the same client-generated id we submitted.
+  // serverId is the separate server-assigned ID used to construct URLs.
+  const responseNode = data.nodes?.find(n => n.id === listId);
+  if (!responseNode) {
+    console.error("[gkeepapi] No response node matching submitted id:", listId,
+      "nodes:", JSON.stringify(data.nodes));
   }
-  const nodeId = listNode?.serverId ?? listNode?.id ?? listId;
-  return { nodeId, url: `https://keep.google.com/u/0/#NOTE/${nodeId}` };
+  const serverId = responseNode?.serverId;
+  if (!serverId) {
+    console.warn("[gkeepapi] No serverId on response node for submitted id:", listId);
+  }
+  return {
+    nodeId: serverId ?? listId,
+    url: serverId ? `https://keep.google.com/u/0/#NOTE/${serverId}` : undefined,
+  };
 }

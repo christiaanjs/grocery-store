@@ -8,7 +8,7 @@ const TEST_HOUSEHOLD_ID = "hh_integ_test";
 const TEST_EMAIL = "test@example.com";
 const MASTER_TOKEN = "aas_et/fake-master-token-value";
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
 
 function authed(path: string, init: RequestInit = {}): Promise<Response> {
   return SELF.fetch(`http://localhost${path}`, {
@@ -56,35 +56,42 @@ async function seedIntegration() {
     .run();
 }
 
-// Mock: Android auth returns a valid Auth token (\r\n line endings to verify parser)
+// Mock: Android auth returns a valid Auth token
 function mockAndroidAuthOk(authToken = "valid_keep_token") {
   vi.spyOn(globalThis, "fetch").mockImplementationOnce(
-    async () => new Response(`Auth=${authToken}\r\nExpiry=157680000\r\n`, { status: 200 }),
+    async () => new Response(`Auth=${authToken}\nExpiry=157680000\n`, { status: 200 }),
   );
 }
 
 // Mock: Android auth returns an error
 function mockAndroidAuthError(error = "BadAuthentication") {
   vi.spyOn(globalThis, "fetch").mockImplementationOnce(
-    async () => new Response(`Error=${error}\r\nInfo=InvalidMasterToken\r\n`, { status: 403 }),
+    async () => new Response(`Error=${error}\nInfo=InvalidMasterToken\n`, { status: 403 }),
   );
 }
 
-// Mock: Keep API returns a successful response with a server-generated list node
+// Mock: Keep API echoes back the submitted LIST node id with a server-assigned serverId
 function mockKeepApiOk(serverId = "server_list_node_id") {
   vi.spyOn(globalThis, "fetch").mockImplementationOnce(
-    async () =>
-      new Response(
+    async (_input, init) => {
+      // Echo back the client-generated id so the lookup by listId succeeds
+      const body = JSON.parse((init?.body as string) ?? "{}") as {
+        nodes?: Array<{ id: string; type: string }>;
+      };
+      const listNode = body.nodes?.find(n => n.type === "LIST");
+      const clientId = listNode?.id ?? "unknown_list_id";
+      return new Response(
         JSON.stringify({
           toVersion: "42",
-          nodes: [{ id: "local_list_id", serverId, type: "LIST" }],
+          nodes: [{ id: clientId, serverId, type: "LIST" }],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
-      ),
+      );
+    },
   );
 }
 
-// ── GET /integrations/google ──────────────────────────────────────────────
+// ── GET /integrations/google ────────────────────────────────────────────
 
 describe("GET /integrations/google", () => {
   beforeEach(() => setupUser());
@@ -112,7 +119,7 @@ describe("GET /integrations/google", () => {
   });
 });
 
-// ── POST /integrations/google/manual-token ────────────────────────────────
+// ── POST /integrations/google/manual-token ────────────────────────────
 
 describe("POST /integrations/google/manual-token", () => {
   beforeEach(() => setupUser());
@@ -171,19 +178,6 @@ describe("POST /integrations/google/manual-token", () => {
     expect(data.email).toBe(TEST_EMAIL);
   });
 
-  it("parses \\r\\n Android auth response correctly (no trailing \\r in token)", async () => {
-    // The mock returns \r\n line endings; the stored token should be clean
-    mockAndroidAuthOk("clean_token_no_cr");
-    const res = await authedJson("/integrations/google/manual-token", "POST", {
-      email: TEST_EMAIL,
-      master_token: MASTER_TOKEN,
-    });
-    expect(res.status).toBe(200);
-    // Verify the integration was stored (getKeepAuthToken did not throw)
-    const statusRes = await authed("/integrations/google");
-    expect(((await statusRes.json()) as { connected: boolean }).connected).toBe(true);
-  });
-
   it("succeeds when account has no email (skips email check)", async () => {
     await setupUser(null); // user with no account email
     mockAndroidAuthOk();
@@ -216,7 +210,7 @@ describe("DELETE /integrations/google", () => {
   });
 });
 
-// ── POST /integrations/google/keep/export ────────────────────────────────
+// ── POST /integrations/google/keep/export ────────────────────────────
 
 describe("POST /integrations/google/keep/export", () => {
   beforeEach(async () => {

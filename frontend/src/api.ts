@@ -189,7 +189,7 @@ export const exportGroceryListToKeep = (params: {
   date_to: string;
   title?: string;
 }) =>
-  apiCall<{ success: boolean; node_id: string; url: string }>(
+  apiCall<{ success: boolean; node_id: string; url?: string }>(
     "/integrations/google/keep/export",
     {
       method: "POST",

@@ -99,7 +99,7 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
     setExportUrl(null);
     try {
       const result = await exportGroceryListToKeep({ date_from: from, date_to: to });
-      setExportUrl(result.url);
+      setExportUrl(result.url ?? null);
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Export to Keep failed");
