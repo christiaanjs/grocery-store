@@ -54,6 +54,6 @@ jobs:
           VITE_WORKER_URL: https://grocery-store-staging.grocery-store.workers.dev
 
       - name: Deploy Pages to staging
-        run: npx wrangler pages deploy frontend/dist --project-name=grocery-store-frontend-staging
+        run: npx wrangler pages deploy frontend/dist --project-name=grocery-store-frontend-staging --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
