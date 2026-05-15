@@ -15,6 +15,7 @@ import {
   handleGoogleCallback,
   handleDeleteIntegration,
   handleUpdateIntegration,
+  handleManualToken,
   handleExportToKeep,
 } from "./routes/integrations.ts";
 
@@ -108,6 +109,9 @@ export default {
     }
     if (method === "PUT" && pathname === "/integrations/google") {
       return withCors(await handleUpdateIntegration(request, env), origin, env);
+    }
+    if (method === "POST" && pathname === "/integrations/google/manual-token") {
+      return withCors(await handleManualToken(request, env), origin, env);
     }
     if (method === "POST" && pathname === "/integrations/google/keep/export") {
       return withCors(await handleExportToKeep(request, env), origin, env);

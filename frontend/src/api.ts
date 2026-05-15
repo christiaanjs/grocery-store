@@ -170,6 +170,13 @@ export const startGoogleIntegrationConnect = () =>
 export const disconnectGoogleIntegration = () =>
   apiCall<{ success: boolean }>("/integrations/google", { method: "DELETE" });
 
+export const submitManualMasterToken = (email: string, masterToken: string) =>
+  apiCall<{ success: boolean }>("/integrations/google/manual-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, master_token: masterToken }),
+  });
+
 export const exportGroceryListToKeep = (params: {
   date_from: string;
   date_to: string;

@@ -3,26 +3,41 @@ import {
   getGoogleIntegrationStatus,
   startGoogleIntegrationConnect,
   disconnectGoogleIntegration,
+  submitManualMasterToken,
   type IntegrationStatus,
 } from "../api.ts";
 
-function readCallbackResult(): { type: "success" | "error"; text: string } | null {
+interface CallbackResult {
+  type: "success" | "error";
+  text: string;
+  isTokenError?: boolean;
+  googleEmail?: string;
+}
+
+function readCallbackResult(): CallbackResult | null {
   const params = new URLSearchParams(window.location.search);
   if (params.get("connected") === "true") {
     return { type: "success", text: "Google Keep connected successfully!" };
   }
   const err = params.get("error");
   if (err) {
-    const detail = params.get("detail") ?? params.get("google_email");
+    const detail = params.get("detail") ?? undefined;
+    const googleEmail = params.get("google_email") ?? undefined;
+    const isTokenError = err === "master_token_error" || err === "master_token_failed";
     const map: Record<string, string> = {
-      email_mismatch: `The Google account email${detail ? ` (${detail})` : ""} does not match your account email. Sign in with the same email.`,
-      master_token_error: `Google authentication failed${detail ? `: ${detail}` : ". Try reconnecting."} `,
-      master_token_failed: `Could not contact Google auth service${detail ? `: ${detail}` : "."}`,
+      email_mismatch: `The Google account email${googleEmail ? ` (${googleEmail})` : ""} does not match your account email. Sign in with the same email.`,
+      master_token_error: `Google authentication failed (${detail ?? "BadAuthentication"}). Use the alternative method below to connect manually.`,
+      master_token_failed: `Could not reach the Google auth service${detail ? `: ${detail}` : "."} Use the alternative method below.`,
       email_not_verified: "The Google account email is not verified.",
       token_exchange_failed: "OAuth token exchange failed. Please try again.",
       invalid_state: "The connection request expired. Please try again.",
     };
-    return { type: "error", text: map[err] ?? `Connection failed: ${err}${detail ? ` (${detail})` : ""}` };
+    return {
+      type: "error",
+      text: map[err] ?? `Connection failed: ${err}${detail ? ` (${detail})` : ""}`,
+      isTokenError,
+      googleEmail,
+    };
   }
   return null;
 }
@@ -33,7 +48,14 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [callbackMsg] = useState(() => readCallbackResult());
+  const [callbackMsg] = useState<CallbackResult | null>(() => readCallbackResult());
+
+  // Manual token form state
+  const [showManualForm, setShowManualForm] = useState(() => callbackMsg?.isTokenError ?? false);
+  const [manualEmail, setManualEmail] = useState(() => callbackMsg?.googleEmail ?? "");
+  const [manualToken, setManualToken] = useState("");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
 
   useEffect(() => {
     // Remove OAuth callback params from the URL without a page reload
@@ -81,6 +103,22 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
       setError(err instanceof Error ? err.message : "Failed to disconnect");
     } finally {
       setDisconnecting(false);
+    }
+  }
+
+  async function submitManual(e: Event) {
+    e.preventDefault();
+    setManualSubmitting(true);
+    setManualError(null);
+    try {
+      await submitManualMasterToken(manualEmail, manualToken);
+      setManualToken("");
+      setShowManualForm(false);
+      await load();
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : "Failed to save token");
+    } finally {
+      setManualSubmitting(false);
     }
   }
 
@@ -157,7 +195,87 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
                   >
                     {connecting ? "Redirecting…" : "Connect Google Keep"}
                   </button>
+                  {!showManualForm && (
+                    <button
+                      class="btn-secondary"
+                      onClick={() => setShowManualForm(true)}
+                    >
+                      Enter token manually
+                    </button>
+                  )}
                 </div>
+
+                {showManualForm && (
+                  <div class="manual-token-section">
+                    <h4 class="manual-token-title">Alternative: enter master token directly</h4>
+                    <p class="manual-token-desc">
+                      If the automatic method returns a <strong>BadAuthentication</strong> error,
+                      you can obtain a master token directly from Google:
+                    </p>
+                    <ol class="manual-token-steps">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://accounts.google.com/EmbeddedSetup"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          accounts.google.com/EmbeddedSetup
+                        </a>
+                      </li>
+                      <li>Log into your Google Account</li>
+                      <li>
+                        Click <strong>I agree</strong> when prompted (the page may show a loading
+                        screen — ignore it)
+                      </li>
+                      <li>
+                        Open browser DevTools → Application → Cookies and copy the value of the{" "}
+                        <code>oauth_token</code> cookie
+                      </li>
+                    </ol>
+                    <form onSubmit={(e) => void submitManual(e)} class="manual-token-form">
+                      <label class="manual-token-label">
+                        Google account email
+                        <input
+                          type="email"
+                          class="manual-token-input"
+                          value={manualEmail}
+                          onInput={(e) => setManualEmail((e.target as HTMLInputElement).value)}
+                          required
+                          placeholder="you@gmail.com"
+                        />
+                      </label>
+                      <label class="manual-token-label">
+                        Master token (<code>oauth_token</code> cookie value)
+                        <input
+                          type="text"
+                          class="manual-token-input"
+                          value={manualToken}
+                          onInput={(e) => setManualToken((e.target as HTMLInputElement).value)}
+                          required
+                          placeholder="oauth2_4/..."
+                          autocomplete="off"
+                        />
+                      </label>
+                      {manualError && <p class="inline-error">{manualError}</p>}
+                      <div class="manual-token-actions">
+                        <button type="submit" class="btn-primary" disabled={manualSubmitting}>
+                          {manualSubmitting ? "Verifying…" : "Save token"}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-secondary"
+                          onClick={() => {
+                            setShowManualForm(false);
+                            setManualError(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
               </>
             )}
           </div>

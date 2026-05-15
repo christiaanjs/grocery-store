@@ -152,7 +152,7 @@ export async function handleGoogleCallback(
     if (!result["Token"]) {
       const errMsg = result["Error"] ?? "no_token";
       return Response.redirect(
-        `${frontendBase}/integrations?error=master_token_error&detail=${encodeURIComponent(errMsg)}`,
+        `${frontendBase}/integrations?error=master_token_error&detail=${encodeURIComponent(errMsg)}&google_email=${encodeURIComponent(googleEmail)}`,
         302,
       );
     }
@@ -160,7 +160,7 @@ export async function handleGoogleCallback(
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
     return Response.redirect(
-      `${frontendBase}/integrations?error=master_token_failed&detail=${encodeURIComponent(msg)}`,
+      `${frontendBase}/integrations?error=master_token_failed&detail=${encodeURIComponent(msg)}&google_email=${encodeURIComponent(googleEmail)}`,
       302,
     );
   }
@@ -199,6 +199,46 @@ export async function handleUpdateIntegration(
   if (!user) return new Response("User not found", { status: 404 });
   const body = (await request.json()) as { keep_list_id?: string | null };
   await updateIntegrationKeepList(env.DB, user.household_id, "google", body.keep_list_id ?? null);
+  return json({ success: true });
+}
+
+// POST /integrations/google/manual-token
+// Alternative flow: user provides email + master token obtained from EmbeddedSetup.
+export async function handleManualToken(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await authenticate(request, env);
+  if (!auth) return new Response("Unauthorized", { status: 401 });
+  if (!env.INTEGRATION_SECRET) {
+    return json({ error: "Integration secret not configured" }, 500);
+  }
+
+  const user = await getUser(env.DB, auth.userId);
+  if (!user) return new Response("User not found", { status: 404 });
+
+  const body = (await request.json()) as { email?: string; master_token?: string };
+  if (!body.email || !body.master_token) {
+    return json({ error: "email and master_token are required" }, 400);
+  }
+
+  const googleEmail = body.email.toLowerCase().trim();
+
+  if (user.email && user.email.toLowerCase() !== googleEmail) {
+    return json({ error: "The Google account email does not match your account email" }, 400);
+  }
+
+  // Verify the master token works before storing it
+  const androidId = androidIdFromUserId(user.id);
+  try {
+    await getKeepAuthToken(googleEmail, body.master_token, androidId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "unknown";
+    return json({ error: `Master token verification failed: ${msg}` }, 400);
+  }
+
+  const { ciphertext, iv } = await encryptToken(env.INTEGRATION_SECRET, body.master_token);
+  await upsertIntegration(env.DB, user.household_id, "google", ciphertext, iv, googleEmail);
   return json({ success: true });
 }
 
