@@ -9,10 +9,7 @@ const KEEP_SCOPES =
 
 function parseAuthResponse(text: string): Record<string, string> {
   const result: Record<string, string> = {};
-  // Google returns \r\n line endings; split on both and trim whitespace so
-  // values never include a trailing \r character.
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
+  for (const line of text.split("\n")) {
     if (!line) continue;
     const idx = line.indexOf("=");
     if (idx === -1) continue;
