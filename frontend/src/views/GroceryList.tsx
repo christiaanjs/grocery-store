@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { getGroceryList, bulkUpdatePantry, getGoogleIntegrationStatus, exportGroceryListToKeep } from "../api.ts";
+import { getGroceryList, bulkUpdatePantry, getGoogleIntegrationStatus, exportGroceryListToKeep, AuthError } from "../api.ts";
 import type { GroceryItem } from "../api.ts";
 import { localDateStr } from "../hooks/useUrlState.ts";
 
@@ -58,7 +58,10 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   useEffect(() => {
     getGoogleIntegrationStatus()
       .then(s => setKeepConnected(s.connected))
-      .catch(() => {});
+      .catch(err => {
+        if (err instanceof AuthError) onAuthError(err);
+        // Non-auth errors: silently hide the Keep button
+      });
   }, []);
 
   const load = useCallback(async () => {

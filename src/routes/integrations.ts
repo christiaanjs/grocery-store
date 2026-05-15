@@ -22,9 +22,14 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// Derive a stable 16-character hex Android device ID from a user UUID.
-function androidIdFromUserId(userId: string): string {
-  return userId.replace(/-/g, "").slice(0, 16);
+// Derive a stable 16-character hex Android device ID from any user ID string
+// by SHA-256 hashing it and hex-encoding the first 8 bytes.
+async function androidIdFromUserId(userId: string): Promise<string> {
+  const data = new TextEncoder().encode(userId);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash).slice(0, 8))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // GET /integrations/google
@@ -46,7 +51,6 @@ export async function handleGetIntegrationStatus(
 }
 
 // POST /integrations/google/authorize
-// Returns a redirect URL for the Google OAuth flow.
 export async function handleGoogleAuthorize(
   request: Request,
   env: Env,
@@ -103,7 +107,6 @@ export async function handleGoogleCallback(
     return Response.redirect(`${frontendBase}/integrations?error=user_not_found`, 302);
   }
 
-  // Exchange code for Google access token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -125,7 +128,6 @@ export async function handleGoogleCallback(
     return Response.redirect(`${frontendBase}/integrations?error=no_access_token`, 302);
   }
 
-  // Fetch Google account email
   const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { Authorization: `Bearer ${tokenData.access_token}` },
   });
@@ -139,7 +141,6 @@ export async function handleGoogleCallback(
   }
   const googleEmail = userInfo.email.toLowerCase();
 
-  // Verify the Google account email matches the user's account email
   if (user.email && user.email.toLowerCase() !== googleEmail) {
     console.error("[integrations] email mismatch: account=%s google=%s", user.email, googleEmail);
     return Response.redirect(
@@ -148,8 +149,7 @@ export async function handleGoogleCallback(
     );
   }
 
-  // Exchange OAuth access token for a Google master token via Android auth endpoint
-  const androidId = androidIdFromUserId(user.id);
+  const androidId = await androidIdFromUserId(user.id);
   let masterToken: string;
   try {
     const result = await exchangeToken(googleEmail, tokenData.access_token, androidId);
@@ -178,7 +178,6 @@ export async function handleGoogleCallback(
 
   const { ciphertext, iv } = await encryptToken(env.INTEGRATION_SECRET, masterToken);
   await upsertIntegration(env.DB, user.household_id, "google", ciphertext, iv, googleEmail);
-
   return Response.redirect(`${frontendBase}/integrations?connected=true`, 302);
 }
 
@@ -210,8 +209,6 @@ export async function handleUpdateIntegration(
 }
 
 // POST /integrations/google/exchange-oauth-token
-// Intermediate flow: user obtains an oauth_token cookie from EmbeddedSetup and
-// we exchange it for a master token via the Android auth endpoint.
 export async function handleExchangeOAuthToken(
   request: Request,
   env: Env,
@@ -232,7 +229,6 @@ export async function handleExchangeOAuthToken(
   }
 
   const googleEmail = body.email.toLowerCase().trim();
-
   if (user.email && user.email.toLowerCase() !== googleEmail) {
     console.error(
       "[integrations] exchange-oauth-token email mismatch: account=%s provided=%s",
@@ -242,7 +238,7 @@ export async function handleExchangeOAuthToken(
     return json({ error: "The Google account email does not match your account email" }, 400);
   }
 
-  const androidId = androidIdFromUserId(user.id);
+  const androidId = await androidIdFromUserId(user.id);
   let masterToken: string;
   try {
     const result = await exchangeToken(googleEmail, body.oauth_token, androidId);
@@ -267,7 +263,6 @@ export async function handleExchangeOAuthToken(
     return json({ error: `Token exchange failed: ${msg}` }, 400);
   }
 
-  // Verify the exchanged master token actually works for Keep
   try {
     await getKeepAuthToken(googleEmail, masterToken, androidId);
   } catch (err) {
@@ -286,7 +281,6 @@ export async function handleExchangeOAuthToken(
 }
 
 // POST /integrations/google/manual-token
-// Last-resort flow: user provides a master token they obtained directly.
 export async function handleManualToken(
   request: Request,
   env: Env,
@@ -307,7 +301,6 @@ export async function handleManualToken(
   }
 
   const googleEmail = body.email.toLowerCase().trim();
-
   if (user.email && user.email.toLowerCase() !== googleEmail) {
     console.error(
       "[integrations] manual-token email mismatch: account=%s provided=%s",
@@ -317,9 +310,7 @@ export async function handleManualToken(
     return json({ error: "The Google account email does not match your account email" }, 400);
   }
 
-  // Verify the master token works by attempting to get a Keep auth token.
-  // This catches typos and expired tokens before we store them.
-  const androidId = androidIdFromUserId(user.id);
+  const androidId = await androidIdFromUserId(user.id);
   try {
     await getKeepAuthToken(googleEmail, body.master_token, androidId);
   } catch (err) {
@@ -369,7 +360,7 @@ export async function handleExportToKeep(
     return json({ error: "Failed to decrypt credentials" }, 500);
   }
 
-  const androidId = androidIdFromUserId(user.id);
+  const androidId = await androidIdFromUserId(user.id);
   let keepAuthToken: string;
   try {
     keepAuthToken = await getKeepAuthToken(
@@ -387,7 +378,15 @@ export async function handleExportToKeep(
     return json({ error: "Keep authentication failed", detail: msg }, 502);
   }
 
-  const body = (await request.json()) as { date_from: string; date_to: string; title?: string };
+  let body: { date_from?: string; date_to?: string; title?: string };
+  try {
+    body = (await request.json()) as { date_from?: string; date_to?: string; title?: string };
+  } catch {
+    return json({ error: "Invalid request body" }, 400);
+  }
+  if (!body.date_from || !body.date_to) {
+    return json({ error: "date_from and date_to are required" }, 400);
+  }
 
   const [meals, pantry] = await Promise.all([
     getMealEntries(env.DB, user.household_id, body.date_from, body.date_to),

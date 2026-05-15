@@ -76,6 +76,11 @@ export async function insertIntegrationAuthState(
   userId: string,
   expiresAt: number,
 ): Promise<void> {
+  // Prune expired rows on each insert to prevent accumulation from abandoned flows.
+  await db
+    .prepare("DELETE FROM integration_auth_states WHERE expires_at < ?")
+    .bind(Date.now())
+    .run();
   await db
     .prepare(
       "INSERT INTO integration_auth_states (state, user_id, expires_at) VALUES (?, ?, ?)",
