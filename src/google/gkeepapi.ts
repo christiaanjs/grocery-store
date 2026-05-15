@@ -5,7 +5,7 @@ const KEEP_API_URL = "https://www.googleapis.com/notes/v1/changes";
 
 function tsString(nowMs: number): string {
   // Keep API uses microsecond precision: 2024-01-01T00:00:00.000000Z
-  return new Date(nowMs).toISOString().replace(/(\.(\d{3}))Z$/, "$1000Z");
+  return new Date(nowMs).toISOString().replace(/(\.\d{3})Z$/, "$1000Z");
 }
 
 function generateNodeId(nowMs: number): string {
@@ -116,9 +116,15 @@ export async function createGroceryList(
     nodes?: Array<{ id: string; serverId?: string; type?: string }>;
   };
 
-  // Find the LIST node by type — we only ever submit one LIST node per request,
-  // so this is unambiguous regardless of the client-generated ID.
+  // The API returns one LIST node in the response. Prefer serverId (the
+  // server-assigned ID); fall back to id in case the server overwrites the
+  // client-generated id field instead of populating serverId separately.
   const listNode = data.nodes?.find(n => n.type === "LIST");
-  const serverId = listNode?.serverId ?? listId;
-  return { nodeId: serverId, url: `https://keep.google.com/u/0/#NOTE/${serverId}` };
+  if (!listNode) {
+    console.error("[gkeepapi] No LIST node in response nodes:", JSON.stringify(data.nodes));
+  } else if (!listNode.serverId) {
+    console.warn("[gkeepapi] LIST node has no serverId, falling back to id field:", listNode.id);
+  }
+  const nodeId = listNode?.serverId ?? listNode?.id ?? listId;
+  return { nodeId, url: `https://keep.google.com/u/0/#NOTE/${nodeId}` };
 }
