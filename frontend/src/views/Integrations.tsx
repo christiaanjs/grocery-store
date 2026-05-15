@@ -3,6 +3,7 @@ import {
   getGoogleIntegrationStatus,
   startGoogleIntegrationConnect,
   disconnectGoogleIntegration,
+  submitOAuthTokenExchange,
   submitManualMasterToken,
   type IntegrationStatus,
 } from "../api.ts";
@@ -50,9 +51,17 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
   const [disconnecting, setDisconnecting] = useState(false);
   const [callbackMsg] = useState<CallbackResult | null>(() => readCallbackResult());
 
-  // Manual token form state
-  const [showManualForm, setShowManualForm] = useState(() => callbackMsg?.isTokenError ?? false);
-  const [manualEmail, setManualEmail] = useState(() => callbackMsg?.googleEmail ?? "");
+  // Alternative connection methods state
+  const [showAlt, setShowAlt] = useState(() => callbackMsg?.isTokenError ?? false);
+  const [altEmail, setAltEmail] = useState(() => callbackMsg?.googleEmail ?? "");
+
+  // Tier 2: exchange oauth_token for master token
+  const [exchangeOAuthToken, setExchangeOAuthToken] = useState("");
+  const [exchangeSubmitting, setExchangeSubmitting] = useState(false);
+  const [exchangeError, setExchangeError] = useState<string | null>(null);
+
+  // Tier 3: enter master token directly (last resort)
+  const [showManualFallback, setShowManualFallback] = useState(false);
   const [manualToken, setManualToken] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
@@ -106,14 +115,31 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
     }
   }
 
+  async function submitExchange(e: Event) {
+    e.preventDefault();
+    setExchangeSubmitting(true);
+    setExchangeError(null);
+    try {
+      await submitOAuthTokenExchange(altEmail, exchangeOAuthToken);
+      setExchangeOAuthToken("");
+      setShowAlt(false);
+      await load();
+    } catch (err) {
+      setExchangeError(err instanceof Error ? err.message : "Failed to exchange token");
+    } finally {
+      setExchangeSubmitting(false);
+    }
+  }
+
   async function submitManual(e: Event) {
     e.preventDefault();
     setManualSubmitting(true);
     setManualError(null);
     try {
-      await submitManualMasterToken(manualEmail, manualToken);
+      await submitManualMasterToken(altEmail, manualToken);
       setManualToken("");
-      setShowManualForm(false);
+      setShowAlt(false);
+      setShowManualFallback(false);
       await load();
     } catch (err) {
       setManualError(err instanceof Error ? err.message : "Failed to save token");
@@ -195,23 +221,24 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
                   >
                     {connecting ? "Redirecting…" : "Connect Google Keep"}
                   </button>
-                  {!showManualForm && (
+                  {!showAlt && (
                     <button
                       class="btn-secondary"
-                      onClick={() => setShowManualForm(true)}
+                      onClick={() => setShowAlt(true)}
                     >
-                      Enter token manually
+                      Having trouble? Try alternative methods
                     </button>
                   )}
                 </div>
 
-                {showManualForm && (
+                {showAlt && (
                   <div class="manual-token-section">
-                    <h4 class="manual-token-title">Alternative: enter master token directly</h4>
+                    <h4 class="manual-token-title">Alternative connection methods</h4>
                     <p class="manual-token-desc">
-                      If the automatic method returns a <strong>BadAuthentication</strong> error,
-                      you can obtain a master token directly from Google:
+                      If the automatic method fails, you can connect by obtaining an OAuth token
+                      directly from Google and exchanging it for a master token:
                     </p>
+
                     <ol class="manual-token-steps">
                       <li>
                         Go to{" "}
@@ -226,47 +253,56 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
                       <li>Log into your Google Account</li>
                       <li>
                         Click <strong>I agree</strong> when prompted (the page may show a loading
-                        screen — ignore it)
+                        screen — that’s expected)
                       </li>
                       <li>
                         Open browser DevTools → Application → Cookies and copy the value of the{" "}
                         <code>oauth_token</code> cookie
                       </li>
                     </ol>
-                    <form onSubmit={(e) => void submitManual(e)} class="manual-token-form">
+
+                    <form onSubmit={(e) => void submitExchange(e)} class="manual-token-form">
                       <label class="manual-token-label">
                         Google account email
                         <input
                           type="email"
                           class="manual-token-input"
-                          value={manualEmail}
-                          onInput={(e) => setManualEmail((e.target as HTMLInputElement).value)}
+                          value={altEmail}
+                          onInput={(e) => setAltEmail((e.target as HTMLInputElement).value)}
                           required
                           placeholder="you@gmail.com"
                         />
                       </label>
                       <label class="manual-token-label">
-                        Master token (<code>oauth_token</code> cookie value)
+                        OAuth token (<code>oauth_token</code> cookie value)
                         <input
                           type="text"
                           class="manual-token-input"
-                          value={manualToken}
-                          onInput={(e) => setManualToken((e.target as HTMLInputElement).value)}
+                          value={exchangeOAuthToken}
+                          onInput={(e) =>
+                            setExchangeOAuthToken((e.target as HTMLInputElement).value)
+                          }
                           required
                           placeholder="oauth2_4/..."
                           autocomplete="off"
                         />
                       </label>
-                      {manualError && <p class="inline-error">{manualError}</p>}
+                      {exchangeError && <p class="inline-error">{exchangeError}</p>}
                       <div class="manual-token-actions">
-                        <button type="submit" class="btn-primary" disabled={manualSubmitting}>
-                          {manualSubmitting ? "Verifying…" : "Save token"}
+                        <button
+                          type="submit"
+                          class="btn-primary"
+                          disabled={exchangeSubmitting}
+                        >
+                          {exchangeSubmitting ? "Exchanging…" : "Exchange & connect"}
                         </button>
                         <button
                           type="button"
                           class="btn-secondary"
                           onClick={() => {
-                            setShowManualForm(false);
+                            setShowAlt(false);
+                            setShowManualFallback(false);
+                            setExchangeError(null);
                             setManualError(null);
                           }}
                         >
@@ -274,6 +310,68 @@ export function Integrations({ onAuthError }: { onAuthError: (err: unknown) => v
                         </button>
                       </div>
                     </form>
+
+                    {!showManualFallback && (
+                      <button
+                        class="btn-secondary"
+                        style="margin-top: 0.75rem;"
+                        onClick={() => setShowManualFallback(true)}
+                      >
+                        Still having trouble? Enter master token directly
+                      </button>
+                    )}
+
+                    {showManualFallback && (
+                      <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color, #e0e0e0);">
+                        <h5 class="manual-token-title" style="font-size: 0.9rem;">
+                          Last resort: enter master token directly
+                        </h5>
+                        <p class="manual-token-desc" style="font-size: 0.85rem;">
+                          If the exchange method above fails, you can paste the{" "}
+                          <code>oauth_token</code> cookie value below as-is to use it directly
+                          as a master token.
+                        </p>
+                        <form
+                          onSubmit={(e) => void submitManual(e)}
+                          class="manual-token-form"
+                        >
+                          <label class="manual-token-label">
+                            Master token
+                            <input
+                              type="text"
+                              class="manual-token-input"
+                              value={manualToken}
+                              onInput={(e) =>
+                                setManualToken((e.target as HTMLInputElement).value)
+                              }
+                              required
+                              placeholder="oauth2_4/..."
+                              autocomplete="off"
+                            />
+                          </label>
+                          {manualError && <p class="inline-error">{manualError}</p>}
+                          <div class="manual-token-actions">
+                            <button
+                              type="submit"
+                              class="btn-primary"
+                              disabled={manualSubmitting}
+                            >
+                              {manualSubmitting ? "Verifying…" : "Save token"}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-secondary"
+                              onClick={() => {
+                                setShowManualFallback(false);
+                                setManualError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
                   </div>
                 )}
               </>

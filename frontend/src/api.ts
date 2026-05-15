@@ -170,6 +170,13 @@ export const startGoogleIntegrationConnect = () =>
 export const disconnectGoogleIntegration = () =>
   apiCall<{ success: boolean }>("/integrations/google", { method: "DELETE" });
 
+export const submitOAuthTokenExchange = (email: string, oauthToken: string) =>
+  apiCall<{ success: boolean }>("/integrations/google/exchange-oauth-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, oauth_token: oauthToken }),
+  });
+
 export const submitManualMasterToken = (email: string, masterToken: string) =>
   apiCall<{ success: boolean }>("/integrations/google/manual-token", {
     method: "POST",

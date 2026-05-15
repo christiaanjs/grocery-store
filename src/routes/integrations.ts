@@ -209,8 +209,84 @@ export async function handleUpdateIntegration(
   return json({ success: true });
 }
 
+// POST /integrations/google/exchange-oauth-token
+// Intermediate flow: user obtains an oauth_token cookie from EmbeddedSetup and
+// we exchange it for a master token via the Android auth endpoint.
+export async function handleExchangeOAuthToken(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await authenticate(request, env);
+  if (!auth) return new Response("Unauthorized", { status: 401 });
+  if (!env.INTEGRATION_SECRET) {
+    console.error("[integrations] INTEGRATION_SECRET is not configured");
+    return json({ error: "Integration secret not configured" }, 500);
+  }
+
+  const user = await getUser(env.DB, auth.userId);
+  if (!user) return new Response("User not found", { status: 404 });
+
+  const body = (await request.json()) as { email?: string; oauth_token?: string };
+  if (!body.email || !body.oauth_token) {
+    return json({ error: "email and oauth_token are required" }, 400);
+  }
+
+  const googleEmail = body.email.toLowerCase().trim();
+
+  if (user.email && user.email.toLowerCase() !== googleEmail) {
+    console.error(
+      "[integrations] exchange-oauth-token email mismatch: account=%s provided=%s",
+      user.email,
+      googleEmail,
+    );
+    return json({ error: "The Google account email does not match your account email" }, 400);
+  }
+
+  const androidId = androidIdFromUserId(user.id);
+  let masterToken: string;
+  try {
+    const result = await exchangeToken(googleEmail, body.oauth_token, androidId);
+    if (!result["Token"]) {
+      const errMsg = result["Error"] ?? "no_token";
+      console.error(
+        "[integrations] exchange-oauth-token: no Token in response. Error=%s Info=%s Detail=%s",
+        result["Error"],
+        result["Info"],
+        result["Detail"],
+      );
+      return json({ error: `Token exchange failed: ${errMsg}` }, 400);
+    }
+    masterToken = result["Token"];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "unknown";
+    console.error(
+      "[integrations] exchange-oauth-token: exchangeToken threw for %s: %s",
+      googleEmail,
+      msg,
+    );
+    return json({ error: `Token exchange failed: ${msg}` }, 400);
+  }
+
+  // Verify the exchanged master token actually works for Keep
+  try {
+    await getKeepAuthToken(googleEmail, masterToken, androidId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "unknown";
+    console.error(
+      "[integrations] exchange-oauth-token: Keep auth verification failed for %s: %s",
+      googleEmail,
+      msg,
+    );
+    return json({ error: `Keep authentication verification failed: ${msg}` }, 400);
+  }
+
+  const { ciphertext, iv } = await encryptToken(env.INTEGRATION_SECRET, masterToken);
+  await upsertIntegration(env.DB, user.household_id, "google", ciphertext, iv, googleEmail);
+  return json({ success: true });
+}
+
 // POST /integrations/google/manual-token
-// Alternative flow: user provides email + master token obtained from EmbeddedSetup.
+// Last-resort flow: user provides a master token they obtained directly.
 export async function handleManualToken(
   request: Request,
   env: Env,
@@ -233,7 +309,11 @@ export async function handleManualToken(
   const googleEmail = body.email.toLowerCase().trim();
 
   if (user.email && user.email.toLowerCase() !== googleEmail) {
-    console.error("[integrations] manual-token email mismatch: account=%s provided=%s", user.email, googleEmail);
+    console.error(
+      "[integrations] manual-token email mismatch: account=%s provided=%s",
+      user.email,
+      googleEmail,
+    );
     return json({ error: "The Google account email does not match your account email" }, 400);
   }
 
@@ -244,7 +324,11 @@ export async function handleManualToken(
     await getKeepAuthToken(googleEmail, body.master_token, androidId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
-    console.error("[integrations] manual-token: getKeepAuthToken failed for %s: %s", googleEmail, msg);
+    console.error(
+      "[integrations] manual-token: getKeepAuthToken failed for %s: %s",
+      googleEmail,
+      msg,
+    );
     return json({ error: `Master token verification failed: ${msg}` }, 400);
   }
 
@@ -295,7 +379,11 @@ export async function handleExportToKeep(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
-    console.error("[integrations] getKeepAuthToken failed during export for %s: %s", integration.google_email, msg);
+    console.error(
+      "[integrations] getKeepAuthToken failed during export for %s: %s",
+      integration.google_email,
+      msg,
+    );
     return json({ error: "Keep authentication failed", detail: msg }, 502);
   }
 
