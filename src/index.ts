@@ -1,3 +1,5 @@
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Env } from "./types.ts";
 import { authenticate } from "./auth/middleware.ts";
 import { handleMcp } from "./mcp/server.ts";
@@ -34,105 +36,80 @@ function isAllowedOrigin(origin: string, allowedOrigin: string, allowSubdomains:
   }
 }
 
-function corsHeaders(origin: string, env: Env): Record<string, string> {
-  if (!isAllowedOrigin(origin, env.ALLOWED_ORIGIN, env.ALLOW_ORIGIN_SUBDOMAINS === "true")) return {};
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Dev-Token",
-    "Access-Control-Max-Age": "86400",
-  };
-}
+const app = new Hono<{ Bindings: Env }>();
 
-function withCors(response: Response, origin: string, env: Env): Response {
-  const headers = corsHeaders(origin, env);
-  if (Object.keys(headers).length === 0) return response;
-  const next = new Response(response.body, response);
-  for (const [k, v] of Object.entries(headers)) next.headers.set(k, v);
-  return next;
-}
+app.use("*", (c, next) => {
+  const env = c.env;
+  return cors({
+    origin: (origin) =>
+      isAllowedOrigin(origin, env.ALLOWED_ORIGIN, env.ALLOW_ORIGIN_SUBDOMAINS === "true")
+        ? origin
+        : null,
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Dev-Token"],
+    maxAge: 86400,
+  })(c, next);
+});
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const { method, pathname } = { method: request.method, pathname: url.pathname };
-    const origin = request.headers.get("Origin") ?? "";
+// ── OAuth endpoints ───────────────────────────────────────────────────────
 
-    // Handle CORS preflight for cross-origin requests from the frontend
-    if (method === "OPTIONS") {
-      const cors = corsHeaders(origin, env);
-      if (Object.keys(cors).length > 0) {
-        return new Response(null, { status: 204, headers: cors });
-      }
-    }
+app.get("/.well-known/oauth-protected-resource", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleProtectedResource(c.req.raw);
+});
 
-    if (env.ENABLE_OAUTH === "true") {
-      if (method === "GET" && pathname === "/.well-known/oauth-protected-resource") {
-        return withCors(handleProtectedResource(request), origin, env);
-      }
-      if (method === "GET" && pathname === "/.well-known/oauth-authorization-server") {
-        return withCors(handleMetadata(request), origin, env);
-      }
-      if (method === "POST" && pathname === "/register") {
-        return withCors(await handleRegister(request, env), origin, env);
-      }
-      if (method === "GET" && pathname === "/authorize") {
-        const provider = env.DEFAULT_OAUTH_PROVIDER ?? "github";
-        return withCors(await handleAuthorize(request, env, provider), origin, env);
-      }
-      if (method === "GET") {
-        const providerMatch = pathname.match(/^\/authorize\/([a-z][a-z0-9]*)$/);
-        if (providerMatch?.[1]) {
-          return withCors(await handleAuthorize(request, env, providerMatch[1]), origin, env);
-        }
-      }
-      if (method === "GET" && pathname === "/oauth/callback") {
-        return withCors(await handleCallback(request, env), origin, env);
-      }
-      if (method === "POST" && pathname === "/token") {
-        return withCors(await handleToken(request, env), origin, env);
-      }
-    }
+app.get("/.well-known/oauth-authorization-server", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleMetadata(c.req.raw);
+});
 
-    // ── Google Keep integration routes ───────────────────────────────────
-    if (method === "GET" && pathname === "/integrations/google") {
-      return withCors(await handleGetIntegrationStatus(request, env), origin, env);
-    }
-    if (method === "POST" && pathname === "/integrations/google/authorize") {
-      return withCors(await handleGoogleAuthorize(request, env), origin, env);
-    }
-    if (method === "GET" && pathname === "/integrations/google/callback") {
-      // Not wrapped in CORS — this is a browser redirect from Google
-      return handleGoogleCallback(request, env);
-    }
-    if (method === "DELETE" && pathname === "/integrations/google") {
-      return withCors(await handleDeleteIntegration(request, env), origin, env);
-    }
-    if (method === "PUT" && pathname === "/integrations/google") {
-      return withCors(await handleUpdateIntegration(request, env), origin, env);
-    }
-    if (method === "POST" && pathname === "/integrations/google/exchange-oauth-token") {
-      return withCors(await handleExchangeOAuthToken(request, env), origin, env);
-    }
-    if (method === "POST" && pathname === "/integrations/google/manual-token") {
-      return withCors(await handleManualToken(request, env), origin, env);
-    }
-    if (method === "POST" && pathname === "/integrations/google/keep/export") {
-      return withCors(await handleExportToKeep(request, env), origin, env);
-    }
+app.post("/register", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleRegister(c.req.raw, c.env);
+});
 
-    if (method === "POST" && pathname === "/mcp") {
-      const auth = await authenticate(request, env);
-      if (!auth) {
-        return withCors(new Response("Unauthorized", { status: 401 }), origin, env);
-      }
-      return withCors(await handleMcp(request, env, auth.userId), origin, env);
-    }
+app.get("/authorize", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  const provider = c.env.DEFAULT_OAUTH_PROVIDER ?? "github";
+  return handleAuthorize(c.req.raw, c.env, provider);
+});
 
-    if (pathname === "/") {
-      return new Response("grocery-store MCP server", { status: 200 });
-    }
+app.get("/authorize/:provider{[a-z][a-z0-9]*}", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleAuthorize(c.req.raw, c.env, c.req.param("provider"));
+});
 
-    return new Response("Not found", { status: 404 });
-  },
-} satisfies ExportedHandler<Env>;
+app.get("/oauth/callback", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleCallback(c.req.raw, c.env);
+});
+
+app.post("/token", (c) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return handleToken(c.req.raw, c.env);
+});
+
+// ── Google Keep integration routes ───────────────────────────────────────
+
+app.get("/integrations/google", (c) => handleGetIntegrationStatus(c.req.raw, c.env));
+app.post("/integrations/google/authorize", (c) => handleGoogleAuthorize(c.req.raw, c.env));
+app.get("/integrations/google/callback", (c) => handleGoogleCallback(c.req.raw, c.env));
+app.delete("/integrations/google", (c) => handleDeleteIntegration(c.req.raw, c.env));
+app.put("/integrations/google", (c) => handleUpdateIntegration(c.req.raw, c.env));
+app.post("/integrations/google/exchange-oauth-token", (c) => handleExchangeOAuthToken(c.req.raw, c.env));
+app.post("/integrations/google/manual-token", (c) => handleManualToken(c.req.raw, c.env));
+app.post("/integrations/google/keep/export", (c) => handleExportToKeep(c.req.raw, c.env));
+
+// ── MCP endpoint ─────────────────────────────────────────────────────────
+
+app.post("/mcp", async (c) => {
+  const auth = await authenticate(c.req.raw, c.env);
+  if (!auth) return new Response("Unauthorized", { status: 401 });
+  return handleMcp(c.req.raw, c.env, auth.userId);
+});
+
+// ── Root ─────────────────────────────────────────────────────────────────
+
+app.get("/", (c) => c.text("grocery-store MCP server"));
+
+export default app;
