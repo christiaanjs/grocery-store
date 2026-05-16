@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono } from "hono/tiny";
 import type { Env } from "../types.ts";
 import { authenticate } from "../auth/middleware.ts";
 import { getUser } from "../db/queries.ts";
