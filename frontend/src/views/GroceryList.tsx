@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "preact/hooks";
-import { getGroceryList, bulkUpdatePantry } from "../api.ts";
+import { getGroceryList, bulkUpdatePantry, getGoogleIntegrationStatus, exportGroceryListToKeep, AuthError } from "../api.ts";
 import type { GroceryItem } from "../api.ts";
 import { localDateStr } from "../hooks/useUrlState.ts";
 
@@ -51,11 +51,24 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   const [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marking, setMarking] = useState(false);
+  const [keepConnected, setKeepConnected] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportUrl, setExportUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getGoogleIntegrationStatus()
+      .then(s => setKeepConnected(s.connected))
+      .catch(err => {
+        if (err instanceof AuthError) onAuthError(err);
+        // Non-auth errors: silently hide the Keep button
+      });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelected(new Set());
+    setExportUrl(null);
     try {
       setItems(await getGroceryList(from, to));
     } catch (err) {
@@ -77,6 +90,21 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard API unavailable
+    }
+  }
+
+  async function exportToKeep() {
+    setExporting(true);
+    setError(null);
+    setExportUrl(null);
+    try {
+      const result = await exportGroceryListToKeep({ date_from: from, date_to: to });
+      setExportUrl(result.url ?? null);
+    } catch (err) {
+      onAuthError(err);
+      setError(err instanceof Error ? err.message : "Export to Keep failed");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -226,7 +254,25 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
         >
           {copied ? "Copied!" : "Copy grocery list"}
         </button>
+        {keepConnected && (
+          <button
+            class="btn-secondary grocery-keep-btn"
+            onClick={() => void exportToKeep()}
+            disabled={items.length === 0 || exporting}
+          >
+            {exporting ? "Exporting…" : "Export to Keep"}
+          </button>
+        )}
       </div>
+
+      {exportUrl && (
+        <p class="grocery-keep-result">
+          Exported!{" "}
+          <a href={exportUrl} target="_blank" rel="noopener noreferrer" class="keep-link">
+            Open in Google Keep ↗
+          </a>
+        </p>
+      )}
 
       {loading && <div class="loading">Loading…</div>}
       {error && <p class="inline-error">{error}</p>}

@@ -17,7 +17,7 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): GroceryItem[] {
+export function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): GroceryItem[] {
   const pantryMap = new Map<string, PantryItem>();
   for (const p of pantry) {
     pantryMap.set(p.name.toLowerCase(), p);

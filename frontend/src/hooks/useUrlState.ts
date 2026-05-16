@@ -1,5 +1,5 @@
 export type Filter = "all" | "in_stock" | "out_of_stock";
-export type Tab = "pantry" | "meals" | "grocery";
+export type Tab = "pantry" | "meals" | "grocery" | "integrations";
 
 export interface UrlState {
   tab: Tab;
@@ -13,7 +13,14 @@ export function parseUrl(): UrlState {
   const path = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
   return {
-    tab: path === "/pantry" ? "pantry" : path === "/grocery" ? "grocery" : "meals",
+    tab:
+      path === "/pantry"
+        ? "pantry"
+        : path === "/grocery"
+        ? "grocery"
+        : path === "/integrations"
+        ? "integrations"
+        : "meals",
     filter: (params.get("filter") ?? "all") as Filter,
     search: params.get("search") ?? "",
     from: params.get("from") ?? undefined,
@@ -22,7 +29,14 @@ export function parseUrl(): UrlState {
 }
 
 function buildUrl(state: UrlState): string {
-  const path = state.tab === "meals" ? "/meal-plan" : state.tab === "grocery" ? "/grocery" : "/pantry";
+  const path =
+    state.tab === "meals"
+      ? "/meal-plan"
+      : state.tab === "grocery"
+      ? "/grocery"
+      : state.tab === "integrations"
+      ? "/integrations"
+      : "/pantry";
   const params = new URLSearchParams();
   if (state.filter !== "all") params.set("filter", state.filter);
   if (state.search) params.set("search", state.search);

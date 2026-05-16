@@ -57,6 +57,39 @@ async function mcpCall<T>(name: string, args: Record<string, unknown>): Promise<
   }
 }
 
+async function apiCall<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const devToken = import.meta.env.VITE_DEV_TOKEN as string | undefined;
+  const authHeaders: Record<string, string> = {};
+
+  if (devToken) {
+    authHeaders["X-Dev-Token"] = devToken;
+  } else {
+    const token = await getValidToken();
+    if (!token) {
+      clearTokens();
+      throw new AuthError("Not authenticated");
+    }
+    authHeaders["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${WORKER_BASE}${path}`, {
+    ...options,
+    headers: { ...authHeaders, ...(options.headers as Record<string, string> ?? {}) },
+  });
+
+  if (res.status === 401) {
+    clearTokens();
+    throw new AuthError("Session expired");
+  }
+
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+
 export class AuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -119,3 +152,48 @@ export const setMealFeedback = (feedback: { date: string; rating?: number; notes
 
 export const getGroceryList = (dateFrom: string, dateTo: string) =>
   mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo });
+
+// ── Google Keep integration API ───────────────────────────────────────────
+
+export interface IntegrationStatus {
+  connected: boolean;
+  email?: string | null;
+  keep_list_id?: string | null;
+}
+
+export const getGoogleIntegrationStatus = () =>
+  apiCall<IntegrationStatus>("/integrations/google");
+
+export const startGoogleIntegrationConnect = () =>
+  apiCall<{ redirect_url: string }>("/integrations/google/authorize", { method: "POST" });
+
+export const disconnectGoogleIntegration = () =>
+  apiCall<{ success: boolean }>("/integrations/google", { method: "DELETE" });
+
+export const submitOAuthTokenExchange = (email: string, oauthToken: string) =>
+  apiCall<{ success: boolean }>("/integrations/google/exchange-oauth-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, oauth_token: oauthToken }),
+  });
+
+export const submitManualMasterToken = (email: string, masterToken: string) =>
+  apiCall<{ success: boolean }>("/integrations/google/manual-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, master_token: masterToken }),
+  });
+
+export const exportGroceryListToKeep = (params: {
+  date_from: string;
+  date_to: string;
+  title?: string;
+}) =>
+  apiCall<{ success: boolean; node_id: string; url?: string }>(
+    "/integrations/google/keep/export",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+  );

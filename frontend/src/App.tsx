@@ -4,6 +4,7 @@ import { AuthError } from "./api.ts";
 import { Pantry } from "./views/Pantry.tsx";
 import { MealPlan } from "./views/MealPlan.tsx";
 import { GroceryList } from "./views/GroceryList.tsx";
+import { Integrations } from "./views/Integrations.tsx";
 import { parseUrl, pushUrl, type Tab, type Filter, type UrlState } from "./hooks/useUrlState.ts";
 
 const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN as string | undefined;
@@ -110,6 +111,12 @@ export function App() {
           <button class={tab === "grocery" ? "active" : ""} onClick={() => switchTab("grocery")}>
             Grocery List
           </button>
+          <button
+            class={tab === "integrations" ? "active" : ""}
+            onClick={() => switchTab("integrations")}
+          >
+            Integrations
+          </button>
         </nav>
         <div class="spacer" />
         {!DEV_TOKEN && (
@@ -143,6 +150,9 @@ export function App() {
         )}
         {tab === "grocery" && (
           <GroceryList key={viewKey} onAuthError={onAuthError} />
+        )}
+        {tab === "integrations" && (
+          <Integrations key={viewKey} onAuthError={onAuthError} />
         )}
       </main>
     </>

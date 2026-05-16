@@ -21,6 +21,7 @@ export default defineConfig(async () => {
             GITHUB_CLIENT_SECRET: "test-github-client-secret",
             GOOGLE_CLIENT_ID: "test-google-client-id",
             GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+            INTEGRATION_SECRET: "test-integration-secret-for-vitest-32ch",
             TEST_MIGRATIONS: migrations,
           },
         },
