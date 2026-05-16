@@ -11,16 +11,7 @@ import {
   handleCallback,
   handleToken,
 } from "./auth/oauth.ts";
-import {
-  handleGetIntegrationStatus,
-  handleGoogleAuthorize,
-  handleGoogleCallback,
-  handleDeleteIntegration,
-  handleUpdateIntegration,
-  handleExchangeOAuthToken,
-  handleManualToken,
-  handleExportToKeep,
-} from "./routes/integrations.ts";
+import { googleRouter } from "./routes/integrations.ts";
 
 function isAllowedOrigin(origin: string, allowedOrigin: string, allowSubdomains: boolean): boolean {
   if (!allowedOrigin || !origin) return false;
@@ -53,52 +44,26 @@ app.use("*", (c, next) => {
 
 // ── OAuth endpoints ───────────────────────────────────────────────────────
 
-app.get("/.well-known/oauth-protected-resource", (c) => {
+const oauth = new Hono<{ Bindings: Env }>();
+
+oauth.use("*", async (c, next) => {
   if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleProtectedResource(c.req.raw);
+  return next();
 });
 
-app.get("/.well-known/oauth-authorization-server", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleMetadata(c.req.raw);
-});
+oauth.get("/.well-known/oauth-protected-resource", (c) => handleProtectedResource(c.req.raw));
+oauth.get("/.well-known/oauth-authorization-server", (c) => handleMetadata(c.req.raw));
+oauth.post("/register", (c) => handleRegister(c.req.raw, c.env));
+oauth.get("/authorize", (c) => handleAuthorize(c.req.raw, c.env, c.env.DEFAULT_OAUTH_PROVIDER ?? "github"));
+oauth.get("/authorize/:provider{[a-z][a-z0-9]*}", (c) => handleAuthorize(c.req.raw, c.env, c.req.param("provider")));
+oauth.get("/oauth/callback", (c) => handleCallback(c.req.raw, c.env));
+oauth.post("/token", (c) => handleToken(c.req.raw, c.env));
 
-app.post("/register", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleRegister(c.req.raw, c.env);
-});
-
-app.get("/authorize", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  const provider = c.env.DEFAULT_OAUTH_PROVIDER ?? "github";
-  return handleAuthorize(c.req.raw, c.env, provider);
-});
-
-app.get("/authorize/:provider{[a-z][a-z0-9]*}", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleAuthorize(c.req.raw, c.env, c.req.param("provider"));
-});
-
-app.get("/oauth/callback", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleCallback(c.req.raw, c.env);
-});
-
-app.post("/token", (c) => {
-  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
-  return handleToken(c.req.raw, c.env);
-});
+app.route("/", oauth);
 
 // ── Google Keep integration routes ───────────────────────────────────────
 
-app.get("/integrations/google", (c) => handleGetIntegrationStatus(c.req.raw, c.env));
-app.post("/integrations/google/authorize", (c) => handleGoogleAuthorize(c.req.raw, c.env));
-app.get("/integrations/google/callback", (c) => handleGoogleCallback(c.req.raw, c.env));
-app.delete("/integrations/google", (c) => handleDeleteIntegration(c.req.raw, c.env));
-app.put("/integrations/google", (c) => handleUpdateIntegration(c.req.raw, c.env));
-app.post("/integrations/google/exchange-oauth-token", (c) => handleExchangeOAuthToken(c.req.raw, c.env));
-app.post("/integrations/google/manual-token", (c) => handleManualToken(c.req.raw, c.env));
-app.post("/integrations/google/keep/export", (c) => handleExportToKeep(c.req.raw, c.env));
+app.route("/integrations/google", googleRouter);
 
 // ── MCP endpoint ─────────────────────────────────────────────────────────
 

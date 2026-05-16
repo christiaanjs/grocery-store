@@ -1,3 +1,4 @@
+import { Hono } from "hono";
 import type { Env } from "../types.ts";
 import { authenticate } from "../auth/middleware.ts";
 import { getUser } from "../db/queries.ts";
@@ -327,6 +328,16 @@ export async function handleManualToken(
   await upsertIntegration(env.DB, user.household_id, "google", ciphertext, iv, googleEmail);
   return json({ success: true });
 }
+
+export const googleRouter = new Hono<{ Bindings: Env }>();
+googleRouter.get("/", (c) => handleGetIntegrationStatus(c.req.raw, c.env));
+googleRouter.post("/authorize", (c) => handleGoogleAuthorize(c.req.raw, c.env));
+googleRouter.get("/callback", (c) => handleGoogleCallback(c.req.raw, c.env));
+googleRouter.delete("/", (c) => handleDeleteIntegration(c.req.raw, c.env));
+googleRouter.put("/", (c) => handleUpdateIntegration(c.req.raw, c.env));
+googleRouter.post("/exchange-oauth-token", (c) => handleExchangeOAuthToken(c.req.raw, c.env));
+googleRouter.post("/manual-token", (c) => handleManualToken(c.req.raw, c.env));
+googleRouter.post("/keep/export", (c) => handleExportToKeep(c.req.raw, c.env));
 
 // POST /integrations/google/keep/export
 export async function handleExportToKeep(
