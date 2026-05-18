@@ -548,3 +548,21 @@ function makeAccessPayload(userId: string, issuer: string): { payload: JwtPayloa
     ttl: ACCESS_TOKEN_TTL,
   };
 }
+
+import { Hono } from "hono/tiny";
+import type { MiddlewareHandler } from "hono";
+
+const requireOAuth: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
+  if (c.env.ENABLE_OAUTH !== "true") return c.notFound();
+  return next();
+};
+
+export const oauthRouter = new Hono<{ Bindings: Env }>();
+
+oauthRouter.get("/.well-known/oauth-protected-resource", requireOAuth, (c) => handleProtectedResource(c.req.raw));
+oauthRouter.get("/.well-known/oauth-authorization-server", requireOAuth, (c) => handleMetadata(c.req.raw));
+oauthRouter.post("/register", requireOAuth, (c) => handleRegister(c.req.raw, c.env));
+oauthRouter.get("/authorize", requireOAuth, (c) => handleAuthorize(c.req.raw, c.env, c.env.DEFAULT_OAUTH_PROVIDER ?? "github"));
+oauthRouter.get("/authorize/:provider{[a-z][a-z0-9]*}", requireOAuth, (c) => handleAuthorize(c.req.raw, c.env, c.req.param("provider")));
+oauthRouter.get("/oauth/callback", requireOAuth, (c) => handleCallback(c.req.raw, c.env));
+oauthRouter.post("/token", requireOAuth, (c) => handleToken(c.req.raw, c.env));

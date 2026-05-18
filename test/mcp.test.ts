@@ -1,5 +1,7 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import app from "../src/index.ts";
+import type { Env } from "../src/types.ts";
 
 const TOKEN = "test-token";
 
@@ -42,6 +44,19 @@ describe("auth", () => {
   it("returns 404 for unknown paths", async () => {
     const res = await SELF.fetch("http://localhost/unknown");
     expect(res.status).toBe(404);
+  });
+
+  it("MCP endpoint still responds when ENABLE_OAUTH=false", async () => {
+    const testEnv = { ...env, ENABLE_OAUTH: "false" } as unknown as Env;
+    const req = new Request("http://localhost/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Dev-Token": TOKEN },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const ctx = createExecutionContext();
+    const res = await app.fetch(req, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(200);
   });
 });
 
