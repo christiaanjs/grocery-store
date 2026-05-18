@@ -56,8 +56,11 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 │   ├── tsconfig.json
 │   └── package.json
 ├── migrations/               # D1 migration files
+├── scripts/
+│   └── backfill-embeddings.ts  # One-off: embed existing meals into Vectorize
 ├── test/
-│   ├── mcp.test.ts           # Integration tests (vitest + @cloudflare/vitest-pool-workers)
+│   ├── mcp.test.ts           # Unit/integration tests — AI + Vectorize mocked via vi.spyOn
+│   ├── mcp.integration.test.ts  # Real-service integration tests (requires Cloudflare creds)
 │   ├── setup.ts              # Applies D1 migrations before each test file
 │   ├── env.d.ts              # Cloudflare.Env augmentation for test bindings
 │   └── tsconfig.json
@@ -66,7 +69,8 @@ Core features: pantry/grocery tracking (what's in stock, what's run out), meal p
 │   ├── deploy-prod.yml       # Worker production deploy (manual)
 │   ├── deploy-pages.yml      # Frontend production deploy (manual)
 │   └── deploy-staging.yml    # Sequential staging deploy: Worker then Pages (manual)
-├── vitest.config.ts
+├── vitest.config.ts              # Default test config — remoteBindings: false, AI/Vectorize mocked
+├── vitest.integration.config.ts  # Integration test config — remoteBindings: true
 ├── tsconfig.json
 ├── wrangler.toml
 └── package.json
@@ -85,11 +89,14 @@ cd frontend && npm install && cd ..
 npm run dev                   # Worker on http://localhost:8787
 cd frontend && npm run dev    # Frontend on http://localhost:5173
 
-# Run tests (single pass)
+# Run tests (single pass, AI + Vectorize mocked)
 npm test                      # vitest run
 
 # Run tests in watch mode
 npm run test:watch            # vitest
+
+# Run integration tests against real Cloudflare AI + Vectorize
+CLOUDFLARE_API_TOKEN=<token> CLOUDFLARE_ACCOUNT_ID=<id> npm run test:integration
 
 # Type-check
 npm run typecheck             # Worker + test
@@ -133,7 +140,34 @@ npm run logs
   VITE_WORKER_URL=http://localhost:8787
   ```
 - Use `--local` flag for all D1 operations during development — this hits a local SQLite file, not the remote database.
-- Automated integration tests live in `test/mcp.test.ts`. Tests use `@cloudflare/vitest-pool-workers` which runs code in a real Workers runtime (Miniflare) with an in-memory D1 database.
+- Automated tests live in `test/mcp.test.ts`. They use `@cloudflare/vitest-pool-workers` (real Workers runtime, Miniflare, in-memory D1). AI and Vectorize bindings are mocked via `vi.spyOn` so no Cloudflare credentials are needed — this is what CI runs.
+
+---
+
+## Testing: two modes
+
+### `npm test` (default, no credentials needed)
+
+Uses `vitest.config.ts` with `remoteBindings: false`. A `beforeAll` block in `test/mcp.test.ts` mounts `vi.spyOn` mocks on `env.AI.run`, `env.MEAL_EMBEDDINGS.upsert`, `env.MEAL_EMBEDDINGS.deleteByIds`, and `env.MEAL_EMBEDDINGS.query` before any test runs. This bypasses the workerd remote-binding proxy stubs, which would otherwise throw at the C++ layer when accessed without credentials.
+
+- Works in CI without any Cloudflare account
+- Keyword fallback in `meal_search` ensures search tests pass even though the Vectorize mock returns empty
+
+### `npm run test:integration` (real AI + Vectorize)
+
+Uses `vitest.integration.config.ts` with `remoteBindings: true`. D1 is still in-memory; AI and Vectorize hit real Cloudflare services.
+
+**Prerequisites:**
+```bash
+export CLOUDFLARE_API_TOKEN=<token with Workers AI + Vectorize permissions>
+export CLOUDFLARE_ACCOUNT_ID=daa76d4bc2fe0d7a9db6a072096fc5b5
+# The Vectorize index must exist:
+# wrangler vectorize create meal-embeddings --dimensions=768 --metric=cosine
+```
+
+**Why a separate test file?** The default `test/mcp.test.ts` mocks the bindings unconditionally in `beforeAll`, so running it with `remoteBindings: true` would still use mocks — not real services. `test/mcp.integration.test.ts` contains no `vi.spyOn` setup and exercises the actual AI embedding + Vectorize upsert/query code paths.
+
+**Eventual consistency:** Vectorize may not reflect a freshly-upserted vector immediately. `meal_search` handles this via a keyword fallback (`meal_plan_suggest` does not — it may return "No past meals found" on the first run after a fresh upsert).
 
 ---
 

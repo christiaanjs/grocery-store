@@ -8,5 +8,5 @@
       "vite/client"
     ]
   },
-  "include": ["./**/*.ts", "../vitest.config.ts"]
+  "include": ["./**/*.ts", "../vitest.config.ts", "../vitest.integration.config.ts"]
 }
