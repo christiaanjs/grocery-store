@@ -8,17 +8,13 @@ binding = "DB"
 database_name = "grocery-store-db"
 database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
 
-# AI and Vectorize bindings are not included here because Miniflare does not
-# support them in local/test mode. Add these for production deployment:
-#
-#   [ai]
-#   binding = "AI"
-#
-#   [[vectorize]]
-#   binding = "MEAL_EMBEDDINGS"
-#   index_name = "meal-embeddings"
-#   (create with: wrangler vectorize create meal-embeddings --dimensions=768 --metric=cosine)
-#   (then run: scripts/backfill-embeddings.ts to embed existing meals)
+[ai]
+binding = "AI"
+
+[[vectorize]]
+binding = "MEAL_EMBEDDINGS"
+index_name = "meal-embeddings"
+#   (TODO run: scripts/backfill-embeddings.ts to embed existing meals)
 
 [vars]
 ENABLE_OAUTH = "true"
@@ -45,13 +41,12 @@ binding = "DB"
 database_name = "grocery-store-db-staging"
 database_id = "9c0fd451-8948-41bd-8c91-9d49cfbfee5a"
 
-# Add for staging deployment:
-#   [env.staging.ai]
-#   binding = "AI"
-#
-#   [[env.staging.vectorize]]
-#   binding = "MEAL_EMBEDDINGS"
-#   index_name = "meal-embeddings-staging"
+[env.staging.ai]
+binding = "AI"
+
+[[env.staging.vectorize]]
+binding = "MEAL_EMBEDDINGS"
+index_name = "meal-embeddings-staging"
 
 [env.staging.vars]
 ENABLE_OAUTH = "true"

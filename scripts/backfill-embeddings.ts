@@ -102,6 +102,12 @@ async function cfFetch(path: string, init: RequestInit = {}): Promise<unknown> {
       ...(init.headers as Record<string, string> | undefined),
     },
   });
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(
+      `Cloudflare API request failed: ${res.status} ${res.statusText} - ${errorBody}`,
+    );
+  }
   const body = await res.json() as { success: boolean; result?: unknown; errors?: unknown[] };
   if (!body.success) {
     throw new Error(`Cloudflare API error: ${JSON.stringify(body.errors)}`);
@@ -155,10 +161,13 @@ async function upsertVectors(vectors: VectorizeVector[]): Promise<void> {
 
 async function getExistingIds(ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
-  const result = await cfFetch(`/vectorize/v2/indexes/${indexName}/get-by-ids`, {
-    method: "POST",
-    body: JSON.stringify({ ids }),
-  }) as Array<{ id: string }>;
+  const result = (await cfFetch(
+    `/vectorize/v2/indexes/${indexName}/get_by_ids`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    },
+  )) as Array<{ id: string }>;
   return new Set(result.map((v) => v.id));
 }
 
