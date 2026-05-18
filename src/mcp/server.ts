@@ -30,7 +30,11 @@ export async function handleMcp(request: Request, env: Env, userId: string): Pro
   try {
     const result = await dispatch(req, env, userId);
     return Response.json(result);
-  } catch {
+  } catch (error) {
+    console.error("Unexpected error handling MCP request", {
+      request: req,
+      error,
+    });
     return Response.json({
       jsonrpc: "2.0",
       id: req.id ?? null,

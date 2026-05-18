@@ -55,7 +55,7 @@ export async function queryMealVectors(
   householdId: string,
   ai: Ai,
   query: string,
-  topK = 20,
+  topK = 5,
 ): Promise<string[]> {
   const values = await embedText(ai, query);
   const result = await index.query(values, {
