@@ -1,6 +1,6 @@
 import type { Env, MealFeedback, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
 import { getMealEntriesByDates, getMealEntries, getMealFeedbackForDate, listPantryItems, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
-import { queryMealVectors } from "../../vectorize.ts";
+import { getVectorizeBindings, queryMealVectors } from "../../vectorize.ts";
 import type { MealSearchRow } from "../../db/queries.ts";
 
 export const FEEDBACK_TOOLS: ToolDefinition[] = [
@@ -262,8 +262,9 @@ export async function handleFeedbackTool(
 
       let rows: MealSearchRow[];
 
-      if (query && env.MEAL_EMBEDDINGS && env.AI) {
-        rows = await semanticSearch(env.DB, env.MEAL_EMBEDDINGS, env.AI, householdId, query, { minRating, maxRating, tag });
+      const vb = getVectorizeBindings(env);
+      if (query && vb) {
+        rows = await semanticSearch(env.DB, vb.index, vb.ai, householdId, query, { minRating, maxRating, tag });
       } else {
         rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
       }
@@ -276,7 +277,8 @@ export async function handleFeedbackTool(
     }
 
     case "meal_plan_suggest": {
-      if (!env.MEAL_EMBEDDINGS || !env.AI) {
+      const vb = getVectorizeBindings(env);
+      if (!vb) {
         return {
           content: [{ type: "text", text: "Meal suggestions require a Vectorize index — not available in this environment" }],
           isError: true,
@@ -293,10 +295,8 @@ export async function handleFeedbackTool(
         };
       }
 
-      const index = env.MEAL_EMBEDDINGS;
-      const ai = env.AI;
       const pantryQuery = pantryItems.map((i) => i.name).join(", ");
-      const dates = await queryMealVectors(index, householdId, ai, pantryQuery, 20);
+      const dates = await queryMealVectors(vb.index, householdId, vb.ai, pantryQuery, 20);
       if (dates.length === 0) {
         return { content: [{ type: "text", text: "No past meals found — add some meal plans first" }] };
       }

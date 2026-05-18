@@ -1,6 +1,6 @@
 import type { Env, MealEntryData, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
 import { deleteMealEntries, getMealEntries, upsertMealEntry } from "../../db/queries.ts";
-import { deleteMealVector, upsertMealVector } from "../../vectorize.ts";
+import { deleteMealVector, getVectorizeBindings, upsertMealVector } from "../../vectorize.ts";
 
 function currentWeekStart(): string {
   const now = new Date();
@@ -191,12 +191,11 @@ export async function handleMealTool(
       );
 
       // Embed saved meals into Vectorize (best-effort — never fail the write response)
-      if (env.MEAL_EMBEDDINGS && env.AI) {
-        const index = env.MEAL_EMBEDDINGS;
-        const ai = env.AI;
+      const vb = getVectorizeBindings(env);
+      if (vb) {
         await Promise.allSettled(
           saved.map((meal) =>
-            upsertMealVector(index, householdId, meal.date, ai, meal.name, meal.ingredients, []),
+            upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, []),
           ),
         );
       }
@@ -214,10 +213,10 @@ export async function handleMealTool(
       const count = await deleteMealEntries(env.DB, householdId, dates);
 
       // Remove vectors from Vectorize (best-effort)
-      if (env.MEAL_EMBEDDINGS) {
-        const index = env.MEAL_EMBEDDINGS;
+      const vb = getVectorizeBindings(env);
+      if (vb) {
         await Promise.allSettled(
-          dates.map((date) => deleteMealVector(index, householdId, date)),
+          dates.map((date) => deleteMealVector(vb.index, householdId, date)),
         );
       }
 
