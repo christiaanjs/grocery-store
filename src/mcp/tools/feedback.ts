@@ -265,6 +265,9 @@ export async function handleFeedbackTool(
       const vb = getVectorizeBindings(env);
       if (query && vb) {
         rows = await semanticSearch(env.DB, vb.index, vb.ai, householdId, query, { minRating, maxRating, tag });
+        if (rows.length === 0) {
+          rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
+        }
       } else {
         rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
       }

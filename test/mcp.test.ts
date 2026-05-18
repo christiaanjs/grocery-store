@@ -1,5 +1,19 @@
 import { SELF, env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeAll } from "vitest";
+
+// Mock AI and Vectorize bindings so tests run without remote Cloudflare connections.
+// vi.spyOn adds `run`/`upsert`/etc. as own properties on the Proxy target, bypassing
+// the workerd stub's throwing get trap for remote-only bindings.
+beforeAll(() => {
+  if (env.AI) {
+    vi.spyOn(env.AI, "run").mockResolvedValue({ shape: [1, 768], data: [new Array(768).fill(0)] } as never);
+  }
+  if (env.MEAL_EMBEDDINGS) {
+    vi.spyOn(env.MEAL_EMBEDDINGS, "upsert").mockResolvedValue({ mutationId: "mock" } as never);
+    vi.spyOn(env.MEAL_EMBEDDINGS, "deleteByIds").mockResolvedValue({ mutationId: "mock" } as never);
+    vi.spyOn(env.MEAL_EMBEDDINGS, "query").mockResolvedValue({ count: 0, matches: [] } as never);
+  }
+});
 import app from "../src/index.ts";
 import type { Env } from "../src/types.ts";
 
@@ -501,13 +515,13 @@ describe("meal feedback and search", () => {
 // ── Meal plan suggest ─────────────────────────────────────────────────────
 
 describe("meal_plan_suggest", () => {
-  it("returns error when Vectorize is not configured (test environment)", async () => {
-    // In the test environment MEAL_EMBEDDINGS is not bound, so the tool returns a
-    // graceful error rather than throwing.
+  it("returns no-matches message when vector index has no results", async () => {
+    // MEAL_EMBEDDINGS.query is mocked to return empty matches, so no past meals are found.
+    // Pantry has eggs + olive oil in stock from earlier tests.
     const res = await call(700, "meal_plan_suggest", {});
     const content = res.result?.["content"] as Array<{ type: string; text: string }>;
-    expect(res.result?.["isError"]).toBe(true);
-    expect(content?.[0]?.text).toContain("Vectorize");
+    expect(res.result?.["isError"]).toBeUndefined();
+    expect(content?.[0]?.text).toContain("No past meals found");
   });
 });
 

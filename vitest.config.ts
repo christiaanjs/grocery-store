@@ -8,7 +8,8 @@ export default defineConfig(async () => {
   return {
     plugins: [
       cloudflareTest({
-        wrangler: { configPath: "./wrangler.test.toml" },
+        remoteBindings: false,
+        wrangler: { configPath: "./wrangler.toml" },
         miniflare: {
           bindings: {
             ENABLE_DEV_AUTH: "true",
