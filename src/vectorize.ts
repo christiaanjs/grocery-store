@@ -2,19 +2,15 @@ import type { Env } from "./types.ts";
 import { EMBEDDING_MODEL } from "./embedding-config.ts";
 
 /**
- * Safely resolves the AI and Vectorize bindings from env.
- * Returns null when bindings are absent or when Miniflare's local stub proxy
- * throws on property access (e.g. in CI without Cloudflare credentials).
+ * Returns the Vectorize and AI bindings, or null if either is absent.
+ * Tests use wrangler.test.toml which omits these bindings, so both are
+ * undefined in tests and this returns null — falling back to keyword search.
  */
 export function getVectorizeBindings(env: Env): { index: VectorizeIndex; ai: Ai } | null {
-  try {
-    const index = env.MEAL_EMBEDDINGS;
-    const ai = env.AI;
-    if (!index || !ai) return null;
-    return { index, ai };
-  } catch {
-    return null;
-  }
+  const index = env.MEAL_EMBEDDINGS;
+  const ai = env.AI;
+  if (!index || !ai) return null;
+  return { index, ai };
 }
 
 export function buildMealText(name: string, ingredients: string | null, tags: string[] = []): string {

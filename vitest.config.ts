@@ -8,12 +8,7 @@ export default defineConfig(async () => {
   return {
     plugins: [
       cloudflareTest({
-        wrangler: { configPath: "./wrangler.toml" },
-        // AI and Vectorize require remote Cloudflare credentials which aren't
-        // available in CI. remoteBindings: false prevents the proxy startup;
-        // getVectorizeBindings() in vectorize.ts catches the stub proxy throw
-        // and treats the bindings as absent, falling back to keyword search.
-        remoteBindings: false,
+        wrangler: { configPath: "./wrangler.test.toml" },
         miniflare: {
           bindings: {
             ENABLE_DEV_AUTH: "true",

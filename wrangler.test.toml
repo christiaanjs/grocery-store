@@ -1,0 +1,20 @@
+# Wrangler config used by vitest only (via vitest.config.ts).
+# Identical to wrangler.toml except AI and Vectorize bindings are omitted so
+# Miniflare doesn't install throwing proxy stubs for remote-only bindings,
+# which can't be caught by JavaScript try/catch (they throw at the native
+# workerd/JSG layer). Code guards these with getVectorizeBindings() which
+# returns null when the bindings are undefined.
+name = "grocery-store"
+main = "src/index.ts"
+compatibility_date = "2025-05-06"
+account_id = "daa76d4bc2fe0d7a9db6a072096fc5b5"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "grocery-store-db"
+database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
+
+[vars]
+ENABLE_OAUTH = "true"
+ALLOWED_ORIGIN = "https://grocery-store-frontend.pages.dev"
+DEFAULT_OAUTH_PROVIDER = "github"
