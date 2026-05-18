@@ -12,11 +12,11 @@ database_id = "79feb78f-8d31-483a-a230-32b6b2c65850"
 binding = "AI"
 remote = true
 
+# TODO: after first deploy, run scripts/backfill-embeddings.ts to embed existing meals.
 [[vectorize]]
 binding = "MEAL_EMBEDDINGS"
 index_name = "meal-embeddings"
 remote = true
-#   (TODO run: scripts/backfill-embeddings.ts to embed existing meals)
 
 [vars]
 ENABLE_OAUTH = "true"

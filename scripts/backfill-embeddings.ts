@@ -14,7 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EMBEDDING_MODEL } from "../src/embedding-config.ts";
+import { EMBEDDING_MODEL, buildMealText } from "../src/embedding-config.ts";
 
 // ── CLI args ──────────────────────────────────────────────────────────────
 
@@ -35,8 +35,14 @@ function loadDevVars(): Record<string, string> {
         .split("\n")
         .filter((l) => l.includes("=") && !l.startsWith("#"))
         .map((l) => {
-          const eq = l.indexOf("=");
-          return [l.slice(0, eq).trim(), l.slice(eq + 1).trim()];
+          const withoutExport = l.startsWith("export ") ? l.slice("export ".length) : l;
+          const eq = withoutExport.indexOf("=");
+          const key = withoutExport.slice(0, eq).trim();
+          let val = withoutExport.slice(eq + 1).trim();
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          return [key, val];
         }),
     );
   } catch {
@@ -130,12 +136,12 @@ async function d1Query(sql: string, params: unknown[] = []): Promise<D1Row[]> {
   return result[0]?.results ?? [];
 }
 
-async function getEmbedding(text: string): Promise<number[]> {
+async function getEmbeddings(texts: string[]): Promise<number[][]> {
   const result = await cfFetch(`/ai/run/${EMBEDDING_MODEL}`, {
     method: "POST",
-    body: JSON.stringify({ text: [text] }),
+    body: JSON.stringify({ text: texts }),
   }) as { data: number[][] };
-  return result.data[0]!;
+  return result.data;
 }
 
 interface VectorizeVector {
@@ -173,18 +179,6 @@ async function getExistingIds(ids: string[]): Promise<Set<string>> {
 
 // ── Main ──────────────────────────────────────────────────────────────────
 
-function buildText(name: string, ingredients: string | null): string {
-  let text = name;
-  if (ingredients) {
-    try {
-      const ings = JSON.parse(ingredients) as Array<{ name: string }>;
-      const names = ings.map((i) => i.name).join(", ");
-      if (names) text += `. Ingredients: ${names}`;
-    } catch { /* skip */ }
-  }
-  return text;
-}
-
 const BATCH_SIZE = 100;
 
 async function run(): Promise<void> {
@@ -209,23 +203,36 @@ async function run(): Promise<void> {
   let failed = 0;
 
   for (let i = 0; i < toEmbed.length; i += BATCH_SIZE) {
+    const batchNum = i / BATCH_SIZE + 1;
     const batch = toEmbed.slice(i, i + BATCH_SIZE);
-    const vectors: VectorizeVector[] = [];
+    const texts = batch.map((row) => buildMealText(row.name, row.ingredients));
 
-    for (const row of batch) {
-      try {
-        const text = buildText(row.name, row.ingredients);
-        const values = await getEmbedding(text);
-        vectors.push({
-          id: `${row.household_id}:${row.date}`,
-          values,
-          metadata: { household_id: row.household_id, date: row.date },
-        });
-        processed++;
-      } catch (err) {
-        console.error(`  Failed to embed ${row.date} "${row.name}": ${err}`);
+    let embeddings: number[][];
+    try {
+      embeddings = await getEmbeddings(texts);
+    } catch (err) {
+      console.error(`  Batch ${batchNum}: Failed to get embeddings: ${err}`);
+      failed += batch.length;
+      const done = Math.min(i + BATCH_SIZE, toEmbed.length);
+      console.log(`  Batch ${batchNum}: ${done}/${toEmbed.length} processed, ${failed} failed`);
+      continue;
+    }
+
+    const vectors: VectorizeVector[] = [];
+    for (let j = 0; j < batch.length; j++) {
+      const row = batch[j]!;
+      const values = embeddings[j];
+      if (!values) {
+        console.error(`  Missing embedding for ${row.date} "${row.name}"`);
         failed++;
+        continue;
       }
+      vectors.push({
+        id: `${row.household_id}:${row.date}`,
+        values,
+        metadata: { household_id: row.household_id, date: row.date },
+      });
+      processed++;
     }
 
     if (vectors.length > 0) {
@@ -233,7 +240,7 @@ async function run(): Promise<void> {
     }
 
     const done = Math.min(i + BATCH_SIZE, toEmbed.length);
-    console.log(`  Batch ${Math.ceil((i + 1) / BATCH_SIZE)}: ${done}/${toEmbed.length} processed, ${failed} failed`);
+    console.log(`  Batch ${batchNum}: ${done}/${toEmbed.length} processed, ${failed} failed`);
   }
 
   console.log();

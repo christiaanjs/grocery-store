@@ -4,8 +4,16 @@
  * Run with:
  *   CLOUDFLARE_API_TOKEN=<token> CLOUDFLARE_ACCOUNT_ID=<id> npm run test:integration
  *
+ * WARNING: These tests write to the production Vectorize index (meal-embeddings) by default.
+ * To avoid polluting production data, prefer running against the staging environment.
+ * Staging requires: a separate Vectorize index (meal-embeddings-staging) and the staging
+ * wrangler environment. See vitest.integration.config.ts for configuration.
+ *
+ * The test vector (date: 2099-12-25) is cleaned up in afterAll. If a test run is
+ * interrupted before cleanup, the orphan vector is harmless but can be removed manually
+ * with: wrangler vectorize delete-by-ids meal-embeddings --ids="<household_id>:2099-12-25"
+ *
  * D1 is in-memory (fresh each run); AI and Vectorize hit real Cloudflare services.
- * Vectors written here are cleaned up in afterAll via meal_plan_delete.
  *
  * Vectorize has eventual consistency — a freshly-upserted vector may not appear in
  * query results immediately. meal_search handles this gracefully via a keyword
@@ -104,9 +112,9 @@ describe("AI + Vectorize integration", () => {
     // Add an in-stock ingredient so the tool has a pantry query to embed.
     await resultJson(3, "pantry_update", { name: "chicken", in_stock: true });
 
-    // May return meal suggestions (if Vectorize has indexed) or "No past meals found"
-    // (if the vector isn't visible yet) — both are valid, neither is a tool error.
-    const text = await resultText(4, "meal_plan_suggest", {});
-    expect(text.length).toBeGreaterThan(0);
+    // May return suggestions (if Vectorize has indexed) or [] (if not yet visible due to
+    // eventual consistency) — both are valid JSON arrays, neither is a tool error.
+    const suggestions = await resultJson<unknown[]>(4, "meal_plan_suggest", {});
+    expect(Array.isArray(suggestions)).toBe(true);
   });
 });

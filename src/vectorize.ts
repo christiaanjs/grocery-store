@@ -1,5 +1,7 @@
 import type { Env } from "./types.ts";
-import { EMBEDDING_MODEL } from "./embedding-config.ts";
+import { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, buildMealText } from "./embedding-config.ts";
+
+export { buildMealText };
 
 /**
  * Returns the Vectorize and AI bindings, or null if either is absent.
@@ -13,22 +15,13 @@ export function getVectorizeBindings(env: Env): { index: VectorizeIndex; ai: Ai 
   return { index, ai };
 }
 
-export function buildMealText(name: string, ingredients: string | null, tags: string[] = []): string {
-  let text = name;
-  if (ingredients) {
-    try {
-      const ings = JSON.parse(ingredients) as Array<{ name: string }>;
-      const ingNames = ings.map((i) => i.name).join(", ");
-      if (ingNames) text += `. Ingredients: ${ingNames}`;
-    } catch { /* ignore malformed JSON */ }
-  }
-  if (tags.length > 0) text += `. Tags: ${tags.join(", ")}`;
-  return text;
-}
-
 export async function embedText(ai: Ai, text: string): Promise<number[]> {
   const result = await ai.run(EMBEDDING_MODEL, { text: [text] }) as { data: number[][] };
-  return result.data[0]!;
+  const vector = result.data[0];
+  if (!vector || vector.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(`Expected ${EMBEDDING_DIMENSIONS}-dim embedding vector, got ${vector?.length ?? 0}`);
+  }
+  return vector;
 }
 
 export async function upsertMealVector(

@@ -193,11 +193,14 @@ export async function handleMealTool(
       // Embed saved meals into Vectorize (best-effort — never fail the write response)
       const vb = getVectorizeBindings(env);
       if (vb) {
-        await Promise.allSettled(
+        const embedResults = await Promise.allSettled(
           saved.map((meal) =>
             upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, []),
           ),
         );
+        for (const r of embedResults) {
+          if (r.status === "rejected") console.error("Failed to upsert meal vector:", r.reason);
+        }
       }
 
       return {
@@ -215,9 +218,12 @@ export async function handleMealTool(
       // Remove vectors from Vectorize (best-effort)
       const vb = getVectorizeBindings(env);
       if (vb) {
-        await Promise.allSettled(
+        const deleteResults = await Promise.allSettled(
           dates.map((date) => deleteMealVector(vb.index, householdId, date)),
         );
+        for (const r of deleteResults) {
+          if (r.status === "rejected") console.error("Failed to delete meal vector:", r.reason);
+        }
       }
 
       return { content: [{ type: "text", text: JSON.stringify({ deleted: count }) }] };

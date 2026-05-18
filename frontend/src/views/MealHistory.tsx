@@ -100,7 +100,7 @@ export function MealHistory({ onAuthError }: { onAuthError: (err: unknown) => vo
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
 
-  const canSearch = query.trim() || minRating || maxRating || tag.trim();
+  const canSearch = !!query.trim() || !!minRating || !!maxRating || !!tag.trim();
 
   async function handleSearch(e: Event) {
     e.preventDefault();

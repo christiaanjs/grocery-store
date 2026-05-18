@@ -1,6 +1,6 @@
 import type { Env, MealFeedback, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
 import { getMealEntriesByDates, getMealEntries, getMealFeedbackForDate, listPantryItems, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
-import { getVectorizeBindings, queryMealVectors } from "../../vectorize.ts";
+import { getVectorizeBindings, queryMealVectors, upsertMealVector } from "../../vectorize.ts";
 import type { MealSearchRow } from "../../db/queries.ts";
 
 export const FEEDBACK_TOOLS: ToolDefinition[] = [
@@ -116,17 +116,14 @@ function formatSearchResults(rows: MealSearchRow[]): Record<string, unknown>[] {
   });
 }
 
-async function semanticSearch(
+// Fetches meals and feedback for the given vector-ranked dates, applies rating/tag filters,
+// and returns results in the same order as `dates` (i.e. descending semantic relevance).
+async function filterByDates(
   db: D1Database,
-  index: VectorizeIndex,
-  ai: Ai,
   householdId: string,
-  query: string,
+  dates: string[],
   opts: { minRating?: number; maxRating?: number; tag?: string },
 ): Promise<MealSearchRow[]> {
-  const dates = await queryMealVectors(index, householdId, ai, query);
-  if (dates.length === 0) return [];
-
   const mealRows = await getMealEntriesByDates(db, householdId, dates);
   if (mealRows.length === 0) return [];
 
@@ -155,10 +152,12 @@ async function semanticSearch(
     const currentSnapshotJson = JSON.stringify({ name: meal.name, ingredients: meal.ingredients, steps: meal.steps });
     const fb = (feedbackByDate.get(date) ?? []).find((f) => f.meal_snapshot === currentSnapshotJson) ?? null;
 
-    if (opts.minRating !== undefined && (fb?.rating ?? null) === null) continue;
-    if (opts.minRating !== undefined && fb!.rating! < opts.minRating) continue;
-    if (opts.maxRating !== undefined && (fb?.rating ?? null) === null) continue;
-    if (opts.maxRating !== undefined && fb!.rating! > opts.maxRating) continue;
+    if (opts.minRating !== undefined) {
+      if (fb?.rating == null || fb.rating < opts.minRating) continue;
+    }
+    if (opts.maxRating !== undefined) {
+      if (fb?.rating == null || fb.rating > opts.maxRating) continue;
+    }
     if (opts.tag) {
       if (!fb?.tags) continue;
       try {
@@ -176,8 +175,6 @@ async function semanticSearch(
       tags: fb?.tags ?? null,
       meal_snapshot: fb?.meal_snapshot ?? null,
     });
-
-    if (results.length >= 50) break;
   }
 
   return results;
@@ -226,6 +223,18 @@ export async function handleFeedbackTool(
       if (saved.rating !== null) data["rating"] = saved.rating;
       if (saved.notes !== null) data["notes"] = saved.notes;
       if (saved.tags !== null) data["tags"] = JSON.parse(saved.tags) as string[];
+
+      // Re-embed the meal with updated tags so semantic search reflects them (best-effort).
+      if (tags !== undefined) {
+        const vb = getVectorizeBindings(env);
+        if (vb) {
+          const meal = mealExists[0]!;
+          upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, tags).catch(
+            (err) => console.error("Failed to re-embed meal vector after tag update:", err),
+          );
+        }
+      }
+
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
 
@@ -264,16 +273,19 @@ export async function handleFeedbackTool(
 
       const vb = getVectorizeBindings(env);
       if (query && vb) {
-        rows = await semanticSearch(env.DB, vb.index, vb.ai, householdId, query, { minRating, maxRating, tag });
-        if (rows.length === 0) {
+        const dates = await queryMealVectors(vb.index, householdId, vb.ai, query);
+        if (dates.length === 0) {
+          // Vectorize returned no candidates (index empty or eventual consistency) — keyword fallback.
           rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
+        } else {
+          rows = await filterByDates(env.DB, householdId, dates, { minRating, maxRating, tag });
         }
       } else {
         rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
       }
 
       if (rows.length === 0) {
-        return { content: [{ type: "text", text: "No meals found matching the search criteria" }] };
+        return { content: [{ type: "text", text: "[]" }] };
       }
 
       return { content: [{ type: "text", text: JSON.stringify(formatSearchResults(rows), null, 2) }] };
@@ -282,10 +294,7 @@ export async function handleFeedbackTool(
     case "meal_plan_suggest": {
       const vb = getVectorizeBindings(env);
       if (!vb) {
-        return {
-          content: [{ type: "text", text: "Meal suggestions require a Vectorize index — not available in this environment" }],
-          isError: true,
-        };
+        return { content: [{ type: "text", text: "[]" }] };
       }
 
       const minRating = typeof args["min_rating"] === "number" ? args["min_rating"] : undefined;
@@ -293,20 +302,18 @@ export async function handleFeedbackTool(
 
       const pantryItems = await listPantryItems(env.DB, householdId, { inStock: true });
       if (pantryItems.length === 0) {
-        return {
-          content: [{ type: "text", text: "Add pantry items first so suggestions can be matched to what you have in stock" }],
-        };
+        return { content: [{ type: "text", text: "[]" }] };
       }
 
       const pantryQuery = pantryItems.map((i) => i.name).join(", ");
       const dates = await queryMealVectors(vb.index, householdId, vb.ai, pantryQuery, 20);
       if (dates.length === 0) {
-        return { content: [{ type: "text", text: "No past meals found — add some meal plans first" }] };
+        return { content: [{ type: "text", text: "[]" }] };
       }
 
       const mealRows = await getMealEntriesByDates(env.DB, householdId, dates);
       if (mealRows.length === 0) {
-        return { content: [{ type: "text", text: "No past meals found — add some meal plans first" }] };
+        return { content: [{ type: "text", text: "[]" }] };
       }
 
       const placeholders = mealRows.map(() => "?").join(", ");
@@ -336,11 +343,12 @@ export async function handleFeedbackTool(
         const currentSnapshotJson = JSON.stringify({ name: meal.name, ingredients: meal.ingredients, steps: meal.steps });
         const fb = (feedbackByDate.get(date) ?? []).find((f) => f.meal_snapshot === currentSnapshotJson) ?? null;
 
-        if (minRating !== undefined && (fb?.rating ?? null) === null) continue;
-        if (minRating !== undefined && fb!.rating! < minRating) continue;
+        if (minRating !== undefined) {
+          if (fb?.rating == null || fb.rating < minRating) continue;
+        }
 
         const suggestion: Record<string, unknown> = { date: meal.date, name: meal.name };
-        if (fb?.rating !== null && fb?.rating !== undefined) suggestion["rating"] = fb.rating;
+        if (fb?.rating != null) suggestion["rating"] = fb.rating;
         if (fb?.tags) {
           try { suggestion["tags"] = JSON.parse(fb.tags) as string[]; } catch { /* skip */ }
         }
@@ -356,10 +364,6 @@ export async function handleFeedbackTool(
         }
 
         suggestions.push(suggestion);
-      }
-
-      if (suggestions.length === 0) {
-        return { content: [{ type: "text", text: "No matching past meals found" }] };
       }
 
       return { content: [{ type: "text", text: JSON.stringify(suggestions, null, 2) }] };
