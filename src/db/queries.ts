@@ -269,6 +269,22 @@ export async function upsertMealEntry(
   return saved!;
 }
 
+export async function getMealEntriesByDates(
+  db: D1Database,
+  householdId: string,
+  dates: string[],
+): Promise<MealEntry[]> {
+  if (dates.length === 0) return [];
+  const placeholders = dates.map(() => "?").join(", ");
+  const result = await db
+    .prepare(
+      `SELECT * FROM meal_entries WHERE household_id = ? AND date IN (${placeholders})`,
+    )
+    .bind(householdId, ...dates)
+    .all<MealEntry>();
+  return result.results;
+}
+
 export async function deleteMealEntries(
   db: D1Database,
   householdId: string,

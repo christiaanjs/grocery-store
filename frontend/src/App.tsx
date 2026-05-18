@@ -4,6 +4,7 @@ import { AuthError } from "./api.ts";
 import { Pantry } from "./views/Pantry.tsx";
 import { MealPlan } from "./views/MealPlan.tsx";
 import { GroceryList } from "./views/GroceryList.tsx";
+import { MealHistory } from "./views/MealHistory.tsx";
 import { Integrations } from "./views/Integrations.tsx";
 import { parseUrl, pushUrl, type Tab, type Filter, type UrlState } from "./hooks/useUrlState.ts";
 
@@ -111,6 +112,9 @@ export function App() {
           <button class={tab === "grocery" ? "active" : ""} onClick={() => switchTab("grocery")}>
             Grocery List
           </button>
+          <button class={tab === "history" ? "active" : ""} onClick={() => switchTab("history")}>
+            History
+          </button>
           <button
             class={tab === "integrations" ? "active" : ""}
             onClick={() => switchTab("integrations")}
@@ -150,6 +154,9 @@ export function App() {
         )}
         {tab === "grocery" && (
           <GroceryList key={viewKey} onAuthError={onAuthError} />
+        )}
+        {tab === "history" && (
+          <MealHistory key={viewKey} onAuthError={onAuthError} />
         )}
         {tab === "integrations" && (
           <Integrations key={viewKey} onAuthError={onAuthError} />

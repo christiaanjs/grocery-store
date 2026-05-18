@@ -8,14 +8,13 @@ export default defineConfig(async () => {
   return {
     plugins: [
       cloudflareTest({
-        remoteBindings: false,
+        remoteBindings: true,
         wrangler: { configPath: "./wrangler.toml" },
         miniflare: {
           bindings: {
             ENABLE_DEV_AUTH: "true",
             DEV_TOKEN: "test-token",
             DEV_USER_ID: "usr_test",
-            // Enable OAuth and provide secrets for the test environment
             ENABLE_OAUTH: "true",
             JWT_SECRET: "test-jwt-secret-for-vitest-at-least-32-chars",
             GITHUB_CLIENT_ID: "test-github-client-id",
@@ -29,7 +28,7 @@ export default defineConfig(async () => {
       }),
     ],
     test: {
-      exclude: ["test/mcp.integration.test.ts", "**/node_modules/**"],
+      include: ["test/mcp.integration.test.ts"],
       setupFiles: ["./test/setup.ts"],
     },
   };

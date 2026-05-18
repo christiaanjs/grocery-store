@@ -1,5 +1,6 @@
-import type { MealEntryData, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
+import type { Env, MealEntryData, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
 import { deleteMealEntries, getMealEntries, upsertMealEntry } from "../../db/queries.ts";
+import { deleteMealVector, getVectorizeBindings, upsertMealVector } from "../../vectorize.ts";
 
 function currentWeekStart(): string {
   const now = new Date();
@@ -156,13 +157,13 @@ export const MEAL_TOOLS: ToolDefinition[] = [
 export async function handleMealTool(
   name: string,
   args: Record<string, unknown>,
-  db: D1Database,
+  env: Env,
   householdId: string,
 ): Promise<ToolResult> {
   switch (name) {
     case "meal_plan_get": {
       const { dateFrom, dateTo } = parseDateRange(args);
-      const rows = await getMealEntries(db, householdId, dateFrom, dateTo);
+      const rows = await getMealEntries(env.DB, householdId, dateFrom, dateTo);
       if (rows.length === 0) {
         return { content: [{ type: "text", text: "[]" }] };
       }
@@ -185,9 +186,23 @@ export async function handleMealTool(
       }
       const saved = await Promise.all(
         (entries as NonNullable<ReturnType<typeof parseEntry>>[]).map((e) =>
-          upsertMealEntry(db, householdId, e),
+          upsertMealEntry(env.DB, householdId, e),
         ),
       );
+
+      // Embed saved meals into Vectorize (best-effort — never fail the write response)
+      const vb = getVectorizeBindings(env);
+      if (vb) {
+        const embedResults = await Promise.allSettled(
+          saved.map((meal) =>
+            upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, []),
+          ),
+        );
+        for (const r of embedResults) {
+          if (r.status === "rejected") console.error("Failed to upsert meal vector:", r.reason);
+        }
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(saved.map(toEntryData), null, 2) }],
       };
@@ -198,7 +213,19 @@ export async function handleMealTool(
         return { content: [{ type: "text", text: "dates must be a non-empty array" }], isError: true };
       }
       const dates = (args["dates"] as unknown[]).filter((d): d is string => typeof d === "string");
-      const count = await deleteMealEntries(db, householdId, dates);
+      const count = await deleteMealEntries(env.DB, householdId, dates);
+
+      // Remove vectors from Vectorize (best-effort)
+      const vb = getVectorizeBindings(env);
+      if (vb) {
+        const deleteResults = await Promise.allSettled(
+          dates.map((date) => deleteMealVector(vb.index, householdId, date)),
+        );
+        for (const r of deleteResults) {
+          if (r.status === "rejected") console.error("Failed to delete meal vector:", r.reason);
+        }
+      }
+
       return { content: [{ type: "text", text: JSON.stringify({ deleted: count }) }] };
     }
 

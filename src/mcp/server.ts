@@ -86,11 +86,11 @@ async function dispatch(req: McpRequest, env: Env, userId: string): Promise<McpR
       if (isPantryTool) {
         toolResult = await handlePantryTool(params.name, args, env.DB, householdId);
       } else if (isMealTool) {
-        toolResult = await handleMealTool(params.name, args, env.DB, householdId);
+        toolResult = await handleMealTool(params.name, args, env, householdId);
       } else if (isPreferenceTool) {
         toolResult = await handlePreferenceTool(params.name, args, env.DB, householdId);
       } else if (isFeedbackTool) {
-        toolResult = await handleFeedbackTool(params.name, args, env.DB, householdId);
+        toolResult = await handleFeedbackTool(params.name, args, env, householdId);
       } else {
         toolResult = await handleGroceryTool(params.name, args, env.DB, householdId);
       }

@@ -1,0 +1,49 @@
+name: Backfill Embeddings
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      replace:
+        description: Re-embed all meals (default skips already-embedded)
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: backfill-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run backfill
+        run: |
+          ARGS=""
+          if [ "${{ inputs.environment }}" != "production" ]; then
+            ARGS="$ARGS --env ${{ inputs.environment }}"
+          fi
+          if [ "${{ inputs.replace }}" = "true" ]; then
+            ARGS="$ARGS --replace"
+          fi
+          npx tsx scripts/backfill-embeddings.ts $ARGS
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: daa76d4bc2fe0d7a9db6a072096fc5b5

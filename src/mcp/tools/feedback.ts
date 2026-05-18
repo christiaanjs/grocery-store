@@ -1,5 +1,7 @@
-import type { MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
-import { getMealEntries, getMealFeedbackForDate, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
+import type { Env, MealFeedback, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
+import { getMealEntriesByDates, getMealEntries, getMealFeedbackForDate, listPantryItems, searchMeals, upsertMealFeedback } from "../../db/queries.ts";
+import { getVectorizeBindings, queryMealVectors, upsertMealVector } from "../../vectorize.ts";
+import type { MealSearchRow } from "../../db/queries.ts";
 
 export const FEEDBACK_TOOLS: ToolDefinition[] = [
   {
@@ -46,13 +48,13 @@ export const FEEDBACK_TOOLS: ToolDefinition[] = [
   {
     name: "meal_search",
     description:
-      "Search past meal entries by keyword (matches meal name, ingredients, and feedback notes), rating range, or tag. Returns meals with any associated feedback. At least one filter is required.",
+      "Search past meal entries. The query parameter accepts natural language (e.g. 'something light with chicken' or 'quick pasta dish') and uses semantic similarity — no need to match exact ingredient names. Rating and tag filters can be combined with or without a query. At least one filter is required.",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Keyword to match against meal name, ingredients, and feedback notes.",
+          description: "Natural language query matched semantically against meal name and ingredients.",
         },
         min_rating: {
           type: "integer",
@@ -73,12 +75,115 @@ export const FEEDBACK_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    name: "meal_plan_suggest",
+    description:
+      "Suggest past meals to cook again based on what's currently in the pantry. Uses semantic similarity between in-stock ingredients and previously saved meals. Optionally filter by minimum rating.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        min_rating: {
+          type: "integer",
+          description: "Minimum rating filter, inclusive (1–5).",
+          minimum: 1,
+          maximum: 5,
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of suggestions to return (1–10, default 5).",
+          minimum: 1,
+          maximum: 10,
+        },
+      },
+    },
+  },
 ];
+
+function formatSearchResults(rows: MealSearchRow[]): Record<string, unknown>[] {
+  return rows.map((row) => {
+    const result: Record<string, unknown> = { date: row.date, name: row.name };
+    if (row.ingredients) result["ingredients"] = JSON.parse(row.ingredients) as MealIngredient[];
+    if (row.steps) result["steps"] = JSON.parse(row.steps) as string[];
+    if (row.rating !== null || row.notes || row.tags || row.meal_snapshot) {
+      const feedback: Record<string, unknown> = {};
+      if (row.rating !== null) feedback["rating"] = row.rating;
+      if (row.notes) feedback["notes"] = row.notes;
+      if (row.tags) feedback["tags"] = JSON.parse(row.tags) as string[];
+      if (row.meal_snapshot) feedback["meal_snapshot"] = JSON.parse(row.meal_snapshot);
+      result["feedback"] = feedback;
+    }
+    return result;
+  });
+}
+
+// Fetches meals and feedback for the given vector-ranked dates, applies rating/tag filters,
+// and returns results in the same order as `dates` (i.e. descending semantic relevance).
+async function filterByDates(
+  db: D1Database,
+  householdId: string,
+  dates: string[],
+  opts: { minRating?: number; maxRating?: number; tag?: string },
+): Promise<MealSearchRow[]> {
+  const mealRows = await getMealEntriesByDates(db, householdId, dates);
+  if (mealRows.length === 0) return [];
+
+  const placeholders = mealRows.map(() => "?").join(", ");
+  const feedbackRows = (
+    await db
+      .prepare(`SELECT * FROM meal_feedback WHERE household_id = ? AND date IN (${placeholders})`)
+      .bind(householdId, ...mealRows.map((m) => m.date))
+      .all<MealFeedback>()
+  ).results;
+
+  const feedbackByDate = new Map<string, MealFeedback[]>();
+  for (const fb of feedbackRows) {
+    const list = feedbackByDate.get(fb.date) ?? [];
+    list.push(fb);
+    feedbackByDate.set(fb.date, list);
+  }
+
+  const mealByDate = new Map(mealRows.map((m) => [m.date, m]));
+  const results: MealSearchRow[] = [];
+
+  for (const date of dates) {
+    const meal = mealByDate.get(date);
+    if (!meal) continue;
+
+    const currentSnapshotJson = JSON.stringify({ name: meal.name, ingredients: meal.ingredients, steps: meal.steps });
+    const fb = (feedbackByDate.get(date) ?? []).find((f) => f.meal_snapshot === currentSnapshotJson) ?? null;
+
+    if (opts.minRating !== undefined) {
+      if (fb?.rating == null || fb.rating < opts.minRating) continue;
+    }
+    if (opts.maxRating !== undefined) {
+      if (fb?.rating == null || fb.rating > opts.maxRating) continue;
+    }
+    if (opts.tag) {
+      if (!fb?.tags) continue;
+      try {
+        if (!(JSON.parse(fb.tags) as string[]).includes(opts.tag)) continue;
+      } catch { continue; }
+    }
+
+    results.push({
+      date: meal.date,
+      name: meal.name,
+      ingredients: meal.ingredients,
+      steps: meal.steps,
+      rating: fb?.rating ?? null,
+      notes: fb?.notes ?? null,
+      tags: fb?.tags ?? null,
+      meal_snapshot: fb?.meal_snapshot ?? null,
+    });
+  }
+
+  return results;
+}
 
 export async function handleFeedbackTool(
   name: string,
   args: Record<string, unknown>,
-  db: D1Database,
+  env: Env,
   householdId: string,
 ): Promise<ToolResult> {
   switch (name) {
@@ -104,7 +209,7 @@ export async function handleFeedbackTool(
         };
       }
 
-      const mealExists = await getMealEntries(db, householdId, args["date"], args["date"]);
+      const mealExists = await getMealEntries(env.DB, householdId, args["date"], args["date"]);
       if (mealExists.length === 0) {
         return {
           content: [{ type: "text", text: `No meal set for ${args["date"]} — add a meal first before recording feedback` }],
@@ -112,12 +217,24 @@ export async function handleFeedbackTool(
         };
       }
 
-      const saved = await upsertMealFeedback(db, householdId, args["date"], { rating, notes, tags });
+      const saved = await upsertMealFeedback(env.DB, householdId, args["date"], { rating, notes, tags });
       const data: Record<string, unknown> = { date: saved.date };
       if (saved.meal_snapshot !== null) data["meal_snapshot"] = JSON.parse(saved.meal_snapshot);
       if (saved.rating !== null) data["rating"] = saved.rating;
       if (saved.notes !== null) data["notes"] = saved.notes;
       if (saved.tags !== null) data["tags"] = JSON.parse(saved.tags) as string[];
+
+      // Re-embed the meal with updated tags so semantic search reflects them (best-effort).
+      if (tags !== undefined) {
+        const vb = getVectorizeBindings(env);
+        if (vb) {
+          const meal = mealExists[0]!;
+          upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, tags).catch(
+            (err) => console.error("Failed to re-embed meal vector after tag update:", err),
+          );
+        }
+      }
+
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
 
@@ -125,7 +242,7 @@ export async function handleFeedbackTool(
       if (typeof args["date"] !== "string") {
         return { content: [{ type: "text", text: "date is required" }], isError: true };
       }
-      const fb = await getMealFeedbackForDate(db, householdId, args["date"]);
+      const fb = await getMealFeedbackForDate(env.DB, householdId, args["date"]);
       if (!fb) {
         return { content: [{ type: "text", text: "null" }] };
       }
@@ -152,28 +269,104 @@ export async function handleFeedbackTool(
         };
       }
 
-      const rows = await searchMeals(db, householdId, { query, minRating, maxRating, tag });
+      let rows: MealSearchRow[];
 
-      if (rows.length === 0) {
-        return { content: [{ type: "text", text: "No meals found matching the search criteria" }] };
+      const vb = getVectorizeBindings(env);
+      if (query && vb) {
+        const dates = await queryMealVectors(vb.index, householdId, vb.ai, query);
+        if (dates.length === 0) {
+          // Vectorize returned no candidates (index empty or eventual consistency) — keyword fallback.
+          rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
+        } else {
+          rows = await filterByDates(env.DB, householdId, dates, { minRating, maxRating, tag });
+        }
+      } else {
+        rows = await searchMeals(env.DB, householdId, { query, minRating, maxRating, tag });
       }
 
-      const results = rows.map((row) => {
-        const result: Record<string, unknown> = { date: row.date, name: row.name };
-        if (row.ingredients) result["ingredients"] = JSON.parse(row.ingredients) as MealIngredient[];
-        if (row.steps) result["steps"] = JSON.parse(row.steps) as string[];
-        // Nest all feedback fields under a single key for a consistent API shape
-        if (row.rating !== null || row.notes || row.tags || row.meal_snapshot) {
-          const feedback: Record<string, unknown> = {};
-          if (row.rating !== null) feedback["rating"] = row.rating;
-          if (row.notes) feedback["notes"] = row.notes;
-          if (row.tags) feedback["tags"] = JSON.parse(row.tags) as string[];
-          if (row.meal_snapshot) feedback["meal_snapshot"] = JSON.parse(row.meal_snapshot);
-          result["feedback"] = feedback;
+      if (rows.length === 0) {
+        return { content: [{ type: "text", text: "[]" }] };
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify(formatSearchResults(rows), null, 2) }] };
+    }
+
+    case "meal_plan_suggest": {
+      const vb = getVectorizeBindings(env);
+      if (!vb) {
+        return { content: [{ type: "text", text: "[]" }] };
+      }
+
+      const minRating = typeof args["min_rating"] === "number" ? args["min_rating"] : undefined;
+      const limit = typeof args["limit"] === "number" ? Math.min(Math.max(1, Math.round(args["limit"])), 10) : 5;
+
+      const pantryItems = await listPantryItems(env.DB, householdId, { inStock: true });
+      if (pantryItems.length === 0) {
+        return { content: [{ type: "text", text: "[]" }] };
+      }
+
+      const pantryQuery = pantryItems.map((i) => i.name).join(", ");
+      const dates = await queryMealVectors(vb.index, householdId, vb.ai, pantryQuery, 20);
+      if (dates.length === 0) {
+        return { content: [{ type: "text", text: "[]" }] };
+      }
+
+      const mealRows = await getMealEntriesByDates(env.DB, householdId, dates);
+      if (mealRows.length === 0) {
+        return { content: [{ type: "text", text: "[]" }] };
+      }
+
+      const placeholders = mealRows.map(() => "?").join(", ");
+      const feedbackRows = (
+        await env.DB
+          .prepare(`SELECT * FROM meal_feedback WHERE household_id = ? AND date IN (${placeholders})`)
+          .bind(householdId, ...mealRows.map((m) => m.date))
+          .all<MealFeedback>()
+      ).results;
+
+      const feedbackByDate = new Map<string, MealFeedback[]>();
+      for (const fb of feedbackRows) {
+        const list = feedbackByDate.get(fb.date) ?? [];
+        list.push(fb);
+        feedbackByDate.set(fb.date, list);
+      }
+
+      const pantryNames = new Set(pantryItems.map((i) => i.name.toLowerCase()));
+      const mealByDate = new Map(mealRows.map((m) => [m.date, m]));
+      const suggestions: Record<string, unknown>[] = [];
+
+      for (const date of dates) {
+        if (suggestions.length >= limit) break;
+        const meal = mealByDate.get(date);
+        if (!meal) continue;
+
+        const currentSnapshotJson = JSON.stringify({ name: meal.name, ingredients: meal.ingredients, steps: meal.steps });
+        const fb = (feedbackByDate.get(date) ?? []).find((f) => f.meal_snapshot === currentSnapshotJson) ?? null;
+
+        if (minRating !== undefined) {
+          if (fb?.rating == null || fb.rating < minRating) continue;
         }
-        return result;
-      });
-      return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+
+        const suggestion: Record<string, unknown> = { date: meal.date, name: meal.name };
+        if (fb?.rating != null) suggestion["rating"] = fb.rating;
+        if (fb?.tags) {
+          try { suggestion["tags"] = JSON.parse(fb.tags) as string[]; } catch { /* skip */ }
+        }
+
+        if (meal.ingredients) {
+          try {
+            const ings = JSON.parse(meal.ingredients) as Array<{ name: string }>;
+            const inStock = ings.filter((i) => pantryNames.has(i.name.toLowerCase())).map((i) => i.name);
+            const missing = ings.filter((i) => !pantryNames.has(i.name.toLowerCase())).map((i) => i.name);
+            suggestion["ingredients_in_stock"] = inStock;
+            suggestion["ingredients_missing"] = missing;
+          } catch { /* skip */ }
+        }
+
+        suggestions.push(suggestion);
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify(suggestions, null, 2) }] };
     }
 
     default:

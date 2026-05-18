@@ -1,6 +1,6 @@
 import { getValidToken, clearTokens } from "./auth.ts";
 export type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
-import type { PantryItem, MealEntryData, GroceryItem } from "../../types/shared.ts";
+import type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
 
@@ -152,6 +152,41 @@ export const setMealFeedback = (feedback: { date: string; rating?: number; notes
 
 export const getGroceryList = (dateFrom: string, dateTo: string) =>
   mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo });
+
+export interface MealSearchResult {
+  date: string;
+  name: string;
+  ingredients?: MealIngredient[];
+  steps?: string[];
+  feedback?: {
+    rating?: number;
+    notes?: string;
+    tags?: string[];
+  };
+}
+
+export interface MealSuggestion {
+  date: string;
+  name: string;
+  rating?: number;
+  tags?: string[];
+  ingredients_in_stock?: string[];
+  ingredients_missing?: string[];
+}
+
+export const searchMeals = (args: {
+  query?: string;
+  min_rating?: number;
+  max_rating?: number;
+  tag?: string;
+}): Promise<MealSearchResult[]> =>
+  mcpCall<MealSearchResult[]>("meal_search", args as Record<string, unknown>);
+
+export const suggestMeals = (args: {
+  min_rating?: number;
+  limit?: number;
+} = {}): Promise<MealSuggestion[]> =>
+  mcpCall<MealSuggestion[]>("meal_plan_suggest", args as Record<string, unknown>);
 
 // ── Google Keep integration API ───────────────────────────────────────────
 
