@@ -26,6 +26,8 @@ import { afterAll, describe, expect, it } from "vitest";
 
 const TOKEN = "test-token";
 const DATE = "2099-12-25"; // Far-future date; won't conflict with real household data
+// Separate date for the semantic-only test so cleanup is clear
+const SEMANTIC_DATE = "2099-11-11";
 
 type McpResponse = {
   jsonrpc: string;
@@ -77,10 +79,10 @@ async function resultJson<T>(id: number, tool: string, args?: Record<string, unk
 
 describe("AI + Vectorize integration", () => {
   afterAll(async () => {
-    // Remove the test meal entry and its vector from the real Vectorize index.
+    // Remove test meal entries and their vectors from the real Vectorize index.
     // Best-effort — don't throw if this fails.
     try {
-      await resultText(999, "meal_plan_delete", { dates: [DATE] });
+      await resultText(999, "meal_plan_delete", { dates: [DATE, SEMANTIC_DATE] });
     } catch { /* ignore */ }
   });
 
@@ -100,6 +102,51 @@ describe("AI + Vectorize integration", () => {
     });
     expect(entries[0]?.name).toBe("roasted chicken with rosemary");
   });
+
+  it("meal_plan_set upserts a vector that semantic search can actually find", async () => {
+    // This test verifies the Vectorize write path end-to-end.
+    //
+    // The meal name and ingredients are chosen so that no word in the search query
+    // appears anywhere in the stored meal text — the keyword fallback in meal_search
+    // cannot return this meal, so a positive result proves the Vectorize vector was
+    // indexed and the query embedding matched it.
+    //
+    //   Stored:  "INTTEST_SEMANTIC_MEAL" — ground turkey, cumin, paprika, black beans
+    //   Query:   "spicy Tex-Mex burrito filling"
+    //   Overlap: none (keyword search does whole-query substring match on name + ingredients JSON)
+    //
+    // Vectorize has eventual consistency, so we poll until the vector appears or 60 s elapses.
+    await resultJson(10, "meal_plan_set", {
+      meals: [{
+        date: SEMANTIC_DATE,
+        name: "INTTEST_SEMANTIC_MEAL",
+        ingredients: [
+          { name: "ground turkey" },
+          { name: "cumin" },
+          { name: "paprika" },
+          { name: "black beans" },
+        ],
+      }],
+    });
+
+    const TIMEOUT_MS = 60_000;
+    const INTERVAL_MS = 5_000;
+    const start = Date.now();
+    let found = false;
+
+    while (Date.now() - start < TIMEOUT_MS) {
+      const results = await resultJson<Array<{ date: string }>>(11, "meal_search", {
+        query: "spicy Tex-Mex burrito filling",
+      });
+      if (results.some((r) => r.date === SEMANTIC_DATE)) {
+        found = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    expect(found, "Vectorize did not index the vector within 60 s — the upsert may have failed").toBe(true);
+  }, 75_000); // 75 s test timeout; the poll loop runs up to 60 s
 
   it("meal_search finds the meal via semantic or keyword fallback path", async () => {
     // Semantic path: Workers AI embeds the query → Vectorize query. If the vector
