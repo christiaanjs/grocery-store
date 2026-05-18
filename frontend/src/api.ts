@@ -1,6 +1,6 @@
 import { getValidToken, clearTokens } from "./auth.ts";
 export type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
-import type { PantryItem, MealEntryData, GroceryItem } from "../../types/shared.ts";
+import type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
 
@@ -152,6 +152,54 @@ export const setMealFeedback = (feedback: { date: string; rating?: number; notes
 
 export const getGroceryList = (dateFrom: string, dateTo: string) =>
   mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo });
+
+export interface MealSearchResult {
+  date: string;
+  name: string;
+  ingredients?: MealIngredient[];
+  feedback?: {
+    rating?: number;
+    notes?: string;
+    tags?: string[];
+  };
+}
+
+export interface MealSuggestion {
+  date: string;
+  name: string;
+  rating?: number;
+  tags?: string[];
+  ingredients_in_stock?: string[];
+  ingredients_missing?: string[];
+}
+
+// meal_search and meal_plan_suggest return a plain-text message (not JSON) when there
+// are no results, which mcpCall would throw on. Catch that specific case and return [].
+export const searchMeals = async (args: {
+  query?: string;
+  min_rating?: number;
+  max_rating?: number;
+  tag?: string;
+}): Promise<MealSearchResult[]> => {
+  try {
+    return await mcpCall<MealSearchResult[]>("meal_search", args as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("Tool response was not valid JSON:")) return [];
+    throw e;
+  }
+};
+
+export const suggestMeals = async (args: {
+  min_rating?: number;
+  limit?: number;
+} = {}): Promise<MealSuggestion[]> => {
+  try {
+    return await mcpCall<MealSuggestion[]>("meal_plan_suggest", args as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("Tool response was not valid JSON:")) return [];
+    throw e;
+  }
+};
 
 // ── Google Keep integration API ───────────────────────────────────────────
 

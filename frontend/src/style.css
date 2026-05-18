@@ -781,6 +781,205 @@ button {
   font-size: 0.875rem;
 }
 
+/* ── Meal history view ──────────────────────────────────────────────────────────────────────── */
+
+.history-view {
+  max-width: 720px;
+}
+
+.history-mode-bar {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.history-search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.history-query-input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.history-query-input:focus {
+  outline: none;
+  border-color: #6b7280;
+}
+
+.history-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.history-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-filter-item select,
+.history-filter-item input[type="text"] {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+.history-filter-item select { width: 90px; }
+.history-filter-item input[type="text"] { width: 140px; }
+
+.history-action-btn {
+  padding: 0.45rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  align-self: flex-end;
+}
+
+.history-suggest-desc {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0 0 1rem;
+}
+
+.history-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.history-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.meal-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.meal-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.meal-card-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #111;
+}
+
+.meal-card-date {
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.meal-card-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stars-display {
+  display: inline-flex;
+  gap: 0.1rem;
+}
+
+.stars-display .star {
+  font-size: 0.95rem;
+  color: #d1d5db;
+}
+
+.stars-display .star.filled {
+  color: #f59e0b;
+}
+
+.meal-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.tag-pill {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: #f3f4f6;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  color: #374151;
+}
+
+.meal-card-notes {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: 0;
+  font-style: italic;
+}
+
+.ingredient-split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+}
+
+.ingredient-split-label {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.ingredient-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.ingredient-pill {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+}
+
+.ingredient-pill--in-stock {
+  background: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.ingredient-pill--missing {
+  background: #fef9c3;
+  color: #854d0e;
+  border: 1px solid #fef08a;
+}
+
 /* ── Misc ─────────────────────────────────────────────────────────────────────────────────────── */
 
 .loading {
