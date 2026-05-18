@@ -96,6 +96,7 @@ describe("tools/list", () => {
       "meal_feedback_set",
       "meal_feedback_get",
       "meal_search",
+      "meal_plan_suggest",
       "grocery_list",
     ]);
   });
@@ -494,6 +495,19 @@ describe("meal feedback and search", () => {
     // Feedback is nested; snapshot must reflect the risotto version, not the old pasta one
     expect(mon!.feedback?.meal_snapshot.name).toBe("risotto");
     expect(mon!.feedback?.rating).toBe(5);
+  });
+});
+
+// ── Meal plan suggest ─────────────────────────────────────────────────────
+
+describe("meal_plan_suggest", () => {
+  it("returns error when Vectorize is not configured (test environment)", async () => {
+    // In the test environment MEAL_EMBEDDINGS is not bound, so the tool returns a
+    // graceful error rather than throwing.
+    const res = await call(700, "meal_plan_suggest", {});
+    const content = res.result?.["content"] as Array<{ type: string; text: string }>;
+    expect(res.result?.["isError"]).toBe(true);
+    expect(content?.[0]?.text).toContain("Vectorize");
   });
 });
 

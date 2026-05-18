@@ -14,6 +14,8 @@ export interface MealEntry {
 // Worker environment bindings
 export interface Env {
   DB: D1Database;
+  AI?: Ai;
+  MEAL_EMBEDDINGS?: VectorizeIndex;
   DEV_TOKEN: string;
   DEV_USER_ID: string;
   ENABLE_OAUTH: string;
