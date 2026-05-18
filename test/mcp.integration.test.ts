@@ -19,34 +19,65 @@ import { afterAll, describe, expect, it } from "vitest";
 const TOKEN = "test-token";
 const DATE = "2099-12-25"; // Far-future date; won't conflict with real household data
 
-async function call(id: number, tool: string, args: Record<string, unknown> = {}) {
-  const res = await SELF.fetch("http://localhost/mcp", {
+type McpResponse = {
+  jsonrpc: string;
+  id: number;
+  result?: Record<string, unknown>;
+  error?: { code: number; message: string };
+};
+
+async function call(id: number, tool: string, args: Record<string, unknown> = {}): Promise<McpResponse> {
+  const httpRes = await SELF.fetch("http://localhost/mcp", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Dev-Token": TOKEN },
     body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name: tool, arguments: args } }),
   });
-  return res.json() as Promise<{
-    jsonrpc: string;
-    id: number;
-    result?: Record<string, unknown>;
-    error?: { code: number; message: string };
-  }>;
+  if (!httpRes.ok) {
+    const body = await httpRes.text();
+    throw new Error(`HTTP ${httpRes.status} from ${tool}: ${body.slice(0, 500)}`);
+  }
+  const json = await httpRes.json() as McpResponse;
+  if (json.error) {
+    throw new Error(`MCP error from ${tool}: code=${json.error.code} message=${json.error.message}`);
+  }
+  if (!json.result) {
+    throw new Error(`No result from ${tool} (full response: ${JSON.stringify(json).slice(0, 500)})`);
+  }
+  return json;
 }
 
-async function resultText(id: number, tool: string, args?: Record<string, unknown>) {
+// Returns the first content text or throws with the tool error text if isError is set.
+async function resultText(id: number, tool: string, args?: Record<string, unknown>): Promise<string> {
   const res = await call(id, tool, args);
   const content = res.result?.["content"] as Array<{ type: string; text: string }> | undefined;
-  return content?.[0]?.text ?? "";
+  const text = content?.[0]?.text ?? "";
+  if (res.result?.["isError"]) {
+    throw new Error(`Tool ${tool} returned isError: ${text}`);
+  }
+  return text;
+}
+
+// Like resultText but parses JSON and throws a descriptive error if parsing fails.
+async function resultJson<T>(id: number, tool: string, args?: Record<string, unknown>): Promise<T> {
+  const text = await resultText(id, tool, args);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${tool} returned non-JSON (first 500 chars): ${text.slice(0, 500)}`);
+  }
 }
 
 describe("AI + Vectorize integration", () => {
   afterAll(async () => {
     // Remove the test meal entry and its vector from the real Vectorize index.
-    await resultText(999, "meal_plan_delete", { dates: [DATE] });
+    // Best-effort — don't throw if this fails.
+    try {
+      await resultText(999, "meal_plan_delete", { dates: [DATE] });
+    } catch { /* ignore */ }
   });
 
   it("meal_plan_set embeds meal into Vectorize without error", async () => {
-    const text = await resultText(1, "meal_plan_set", {
+    const entries = await resultJson<Array<{ date: string; name: string }>>(1, "meal_plan_set", {
       meals: [
         {
           date: DATE,
@@ -59,26 +90,23 @@ describe("AI + Vectorize integration", () => {
         },
       ],
     });
-    const entries = JSON.parse(text) as Array<{ date: string; name: string }>;
     expect(entries[0]?.name).toBe("roasted chicken with rosemary");
   });
 
   it("meal_search finds the meal via semantic or keyword fallback path", async () => {
     // Semantic path: Workers AI embeds the query → Vectorize query. If the vector
     // isn't indexed yet (eventual consistency), the keyword fallback catches it.
-    const text = await resultText(2, "meal_search", { query: "chicken" });
-    const results = JSON.parse(text) as Array<{ name: string }>;
+    const results = await resultJson<Array<{ name: string }>>(2, "meal_search", { query: "chicken" });
     expect(results.some((r) => r.name === "roasted chicken with rosemary")).toBe(true);
   });
 
   it("meal_plan_suggest returns a response without error", async () => {
     // Add an in-stock ingredient so the tool has a pantry query to embed.
-    await resultText(3, "pantry_update", { name: "chicken", in_stock: true });
-    const res = await call(4, "meal_plan_suggest", {});
+    await resultJson(3, "pantry_update", { name: "chicken", in_stock: true });
+
     // May return meal suggestions (if Vectorize has indexed) or "No past meals found"
-    // (if the vector isn't visible yet) — both are valid, neither is an error.
-    expect(res.result?.["isError"]).toBeUndefined();
-    const content = res.result?.["content"] as Array<{ type: string; text: string }>;
-    expect(content?.[0]?.text).toBeTruthy();
+    // (if the vector isn't visible yet) — both are valid, neither is a tool error.
+    const text = await resultText(4, "meal_plan_suggest", {});
+    expect(text.length).toBeGreaterThan(0);
   });
 });
