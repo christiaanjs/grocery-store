@@ -1,0 +1,63 @@
+name: PR Comment Deploy
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  deploy-staging:
+    if: >-
+      github.event.issue.pull_request != null &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/deploy-staging')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Get PR branch
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.payload.comment.body.trim() !== '/deploy-staging') {
+              core.setFailed(`Unknown command: "${context.payload.comment.body.trim()}"`);
+              return;
+            }
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            if (pr.data.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed('Staging deploys are not supported for forked PRs');
+              return;
+            }
+            return pr.data.head.ref;
+          result-encoding: string
+
+      - name: Trigger deploy-staging workflow
+        uses: actions/github-script@v7
+        env:
+          PR_BRANCH: ${{ steps.pr.outputs.result }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-staging.yml',
+              ref: process.env.PR_BRANCH,
+            });
+
+      - name: React with rocket
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
