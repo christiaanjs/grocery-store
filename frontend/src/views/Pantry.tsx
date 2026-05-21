@@ -168,6 +168,10 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
 
   const categories = Object.keys(grouped).sort();
 
+  const allCategories = Array.from(
+    new Set(items.map(i => i.category).filter((c): c is string => !!c))
+  ).sort();
+
   return (
     <div>
       <div class="pantry-toolbar">
@@ -193,6 +197,10 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
       {loading && <p class="loading">Loading…</p>}
 
       {!loading && (
+        <>
+        <datalist id="category-options">
+          {allCategories.map(c => <option key={c} value={c} />)}
+        </datalist>
         <table class="pantry-table">
           <thead>
             <tr>
@@ -206,6 +214,22 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
             </tr>
           </thead>
           <tbody>
+            {addingNew && (
+              <tr>
+                <td />
+                <td class="edit-row"><input type="text" placeholder="Name*" value={newItem.name} onInput={e => setNewItem(s => ({ ...s, name: (e.target as HTMLInputElement).value }))} /></td>
+                <td class="edit-row"><input type="text" list="category-options" placeholder="Category" value={newItem.category} onInput={e => setNewItem(s => ({ ...s, category: (e.target as HTMLInputElement).value }))} /></td>
+                <td class="edit-row"><input type="text" placeholder="Qty" value={newItem.quantity} onInput={e => setNewItem(s => ({ ...s, quantity: (e.target as HTMLInputElement).value }))} /></td>
+                <td class="edit-row"><input type="text" placeholder="Unit" value={newItem.unit} onInput={e => setNewItem(s => ({ ...s, unit: (e.target as HTMLInputElement).value }))} /></td>
+                <td />
+                <td>
+                  <div class="row-actions">
+                    <button class="save-btn" onClick={() => void saveNewItem()}>Add</button>
+                    <button onClick={() => setAddingNew(false)}>Cancel</button>
+                  </div>
+                </td>
+              </tr>
+            )}
             {categories.map(cat =>
               grouped[cat].map(item => (
                 <tr key={item.id} class={item.in_stock === 0 ? "out-of-stock" : ""}>
@@ -224,7 +248,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                   {editingId === item.id ? (
                     <>
                       <td class="edit-row"><input type="text" value={editState.name} onInput={e => setEditState(s => ({ ...s, name: (e.target as HTMLInputElement).value }))} /></td>
-                      <td class="edit-row"><input type="text" value={editState.category} onInput={e => setEditState(s => ({ ...s, category: (e.target as HTMLInputElement).value }))} /></td>
+                      <td class="edit-row"><input type="text" list="category-options" value={editState.category} onInput={e => setEditState(s => ({ ...s, category: (e.target as HTMLInputElement).value }))} /></td>
                       <td class="edit-row"><input type="text" value={editState.quantity} onInput={e => setEditState(s => ({ ...s, quantity: (e.target as HTMLInputElement).value }))} /></td>
                       <td class="edit-row"><input type="text" value={editState.unit} onInput={e => setEditState(s => ({ ...s, unit: (e.target as HTMLInputElement).value }))} /></td>
                       <td />
@@ -262,24 +286,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
               ))
             )}
 
-            {addingNew && (
-              <tr>
-                <td />
-                <td class="edit-row"><input type="text" placeholder="Name*" value={newItem.name} onInput={e => setNewItem(s => ({ ...s, name: (e.target as HTMLInputElement).value }))} /></td>
-                <td class="edit-row"><input type="text" placeholder="Category" value={newItem.category} onInput={e => setNewItem(s => ({ ...s, category: (e.target as HTMLInputElement).value }))} /></td>
-                <td class="edit-row"><input type="text" placeholder="Qty" value={newItem.quantity} onInput={e => setNewItem(s => ({ ...s, quantity: (e.target as HTMLInputElement).value }))} /></td>
-                <td class="edit-row"><input type="text" placeholder="Unit" value={newItem.unit} onInput={e => setNewItem(s => ({ ...s, unit: (e.target as HTMLInputElement).value }))} /></td>
-                <td />
-                <td>
-                  <div class="row-actions">
-                    <button class="save-btn" onClick={() => void saveNewItem()}>Add</button>
-                    <button onClick={() => setAddingNew(false)}>Cancel</button>
-                  </div>
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
+        </>
       )}
 
       {selected.size > 0 && (
