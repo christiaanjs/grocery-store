@@ -9,7 +9,7 @@ jobs:
     if: >-
       github.event.issue.pull_request != null &&
       github.event.comment.user.login == github.repository_owner &&
-      github.event.comment.body == '/deploy-staging'
+      startsWith(github.event.comment.body, '/deploy-staging')
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -22,11 +22,19 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            if (context.payload.comment.body.trim() !== '/deploy-staging') {
+              core.setFailed(`Unknown command: "${context.payload.comment.body.trim()}"`);
+              return;
+            }
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: context.issue.number,
             });
+            if (pr.data.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed('Staging deploys are not supported for forked PRs');
+              return;
+            }
             return pr.data.head.ref;
           result-encoding: string
 
