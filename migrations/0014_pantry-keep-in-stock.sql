@@ -1,0 +1,1 @@
+ALTER TABLE pantry_items ADD COLUMN keep_in_stock INTEGER NOT NULL DEFAULT 0;

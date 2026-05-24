@@ -110,6 +110,7 @@ export const updatePantryItem = (item: {
   quantity?: number;
   unit?: string;
   in_stock?: boolean;
+  keep_in_stock?: boolean;
 }) => mcpCall<PantryItem>("pantry_update", item as Record<string, unknown>);
 
 export const markItemsOut = (names: string[]) =>
@@ -125,6 +126,7 @@ export const bulkUpdatePantry = (
     quantity?: number;
     unit?: string;
     in_stock?: boolean;
+    keep_in_stock?: boolean;
   }>,
 ) => mcpCall<PantryItem[]>("pantry_bulk_update", { items });
 
@@ -150,8 +152,8 @@ export const getMealFeedback = (date: string) =>
 export const setMealFeedback = (feedback: { date: string; rating?: number; notes?: string; tags?: string[] }) =>
   mcpCall<MealFeedback>("meal_feedback_set", feedback as Record<string, unknown>);
 
-export const getGroceryList = (dateFrom: string, dateTo: string) =>
-  mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo });
+export const getGroceryList = (dateFrom: string, dateTo: string, includeKeepInStock = true) =>
+  mcpCall<GroceryItem[]>("grocery_list", { date_from: dateFrom, date_to: dateTo, include_keep_in_stock: includeKeepInStock });
 
 export interface MealSearchResult {
   date: string;
