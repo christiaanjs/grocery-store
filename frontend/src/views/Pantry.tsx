@@ -2,7 +2,25 @@ import { useState, useEffect } from "preact/hooks";
 import { listPantryItems, updatePantryItem, markItemsOut, deletePantryItem, type PantryItem } from "../api.ts";
 import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
-const PAGE_SIZE = 25;
+const DESKTOP_PAGE_SIZE = 25;
+const MOBILE_PAGE_SIZE = 10;
+const MOBILE_BREAKPOINT = 640;
+
+function usePageSize(): number {
+  const [size, setSize] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth <= MOBILE_BREAKPOINT
+      ? MOBILE_PAGE_SIZE
+      : DESKTOP_PAGE_SIZE,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
+    const handler = (e: MediaQueryListEvent) =>
+      setSize(e.matches ? MOBILE_PAGE_SIZE : DESKTOP_PAGE_SIZE);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return size;
+}
 
 interface EditState {
   name: string;
@@ -19,6 +37,7 @@ interface Props {
 }
 
 export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
+  const pageSize = usePageSize();
   const [items, setItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
@@ -185,9 +204,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
     return item.name.toLowerCase().includes(search.toLowerCase());
   });
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
   const safePage = Math.min(page, totalPages);
-  const paged = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const paged = visible.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const grouped = paged.reduce<Record<string, PantryItem[]>>((acc, item) => {
     const cat = item.category ?? "Uncategorized";
@@ -330,9 +349,17 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
         </table>
         {totalPages > 1 && (
           <div class="pagination">
-            <button disabled={safePage === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
-            <span>Page {safePage} of {totalPages} ({visible.length} items)</span>
-            <button disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+            <button
+              class="btn-secondary pagination-btn"
+              disabled={safePage === 1}
+              onClick={() => setPage(p => p - 1)}
+            >← Prev</button>
+            <span class="pagination-info">Page {safePage} of {totalPages} · {visible.length} items</span>
+            <button
+              class="btn-secondary pagination-btn"
+              disabled={safePage === totalPages}
+              onClick={() => setPage(p => p + 1)}
+            >Next →</button>
           </div>
         )}
         </>
