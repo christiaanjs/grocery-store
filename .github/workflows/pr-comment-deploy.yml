@@ -12,10 +12,9 @@ jobs:
       startsWith(github.event.comment.body, '/deploy-staging')
     runs-on: ubuntu-latest
     permissions:
-      actions: write
-      issues: write
-      pull-requests: read
-      reactions: write
+    permissions:
+      actions: write       # trigger workflow_dispatch
+      pull-requests: write # react to the comment
 
     steps:
       - name: Get PR branch
