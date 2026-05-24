@@ -15,6 +15,7 @@ jobs:
       actions: write
       issues: write
       pull-requests: read
+      reactions: write
 
     steps:
       - name: Get PR branch
