@@ -352,13 +352,13 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
             <button
               class="btn-secondary pagination-btn"
               disabled={safePage === 1}
-              onClick={() => setPage(p => p - 1)}
+              onClick={() => setPage(safePage - 1)}
             >← Prev</button>
             <span class="pagination-info">Page {safePage} of {totalPages} · {visible.length} items</span>
             <button
               class="btn-secondary pagination-btn"
               disabled={safePage === totalPages}
-              onClick={() => setPage(p => p + 1)}
+              onClick={() => setPage(safePage + 1)}
             >Next →</button>
           </div>
         )}

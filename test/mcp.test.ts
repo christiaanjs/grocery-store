@@ -186,6 +186,30 @@ describe("pantry", () => {
     expect(res.result?.["isError"]).toBe(true);
     expect(content?.[0]?.text).toContain("name is required");
   });
+
+  it("persists keep_in_stock when set to true", async () => {
+    const text = await resultText(18, "pantry_update", { name: "eggs", keep_in_stock: true });
+    const item = JSON.parse(text) as Record<string, unknown>;
+    expect(item["keep_in_stock"]).toBe(1);
+    const listText = await resultText(181, "pantry_list");
+    const listed = (JSON.parse(listText) as Array<Record<string, unknown>>).find(i => i["name"] === "eggs");
+    expect(listed?.["keep_in_stock"]).toBe(1);
+  });
+
+  it("clears keep_in_stock when set to false", async () => {
+    const text = await resultText(19, "pantry_update", { name: "eggs", keep_in_stock: false });
+    const item = JSON.parse(text) as Record<string, unknown>;
+    expect(item["keep_in_stock"]).toBe(0);
+  });
+
+  it("pantry_list_categories returns distinct sorted categories, excluding nulls", async () => {
+    // salt has no category — should not appear in the list
+    await resultText(191, "pantry_update", { name: "salt" });
+    const text = await resultText(192, "pantry_list_categories");
+    const cats = JSON.parse(text) as string[];
+    // eggs + milk → dairy, olive oil → pantry; salt has no category
+    expect(cats).toEqual(["dairy", "pantry"]);
+  });
 });
 
 // ── Meal plans ────────────────────────────────────────────────────────────
@@ -611,5 +635,25 @@ describe("grocery_list", () => {
     expect(milkEntries.length).toBe(1);
     expect(milkEntries[0]?.quantity).toBeUndefined();
     expect(milkEntries[0]?.unit).toBeUndefined();
+  });
+
+  it("includes out-of-stock keep_in_stock items even when not in any meal", async () => {
+    // olive oil is in_stock=1; mark it out and flag keep_in_stock
+    await resultText(91, "pantry_update", { name: "olive oil", keep_in_stock: true });
+    await resultText(92, "pantry_mark_out", { names: ["olive oil"] });
+    // use a week with no meals so only keep_in_stock items appear
+    const text = await resultText(93, "grocery_list", { date_from: "2026-07-01", date_to: "2026-07-07" });
+    const items = JSON.parse(text) as Array<{ name: string }>;
+    expect(items.some(i => i.name === "olive oil")).toBe(true);
+  });
+
+  it("excludes keep_in_stock items when include_keep_in_stock is false", async () => {
+    const text = await resultText(94, "grocery_list", {
+      date_from: "2026-07-01",
+      date_to: "2026-07-07",
+      include_keep_in_stock: false,
+    });
+    const items = JSON.parse(text) as Array<{ name: string }>;
+    expect(items.every(i => i.name !== "olive oil")).toBe(true);
   });
 });
