@@ -101,6 +101,7 @@ describe("tools/list", () => {
       "pantry_mark_out",
       "pantry_delete",
       "pantry_bulk_update",
+      "pantry_list_categories",
       "meal_plan_get",
       "meal_plan_set",
       "meal_plan_delete",

@@ -2,11 +2,14 @@ import { useState, useEffect } from "preact/hooks";
 import { listPantryItems, updatePantryItem, markItemsOut, deletePantryItem, type PantryItem } from "../api.ts";
 import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
+const PAGE_SIZE = 25;
+
 interface EditState {
   name: string;
   category: string;
   quantity: string;
   unit: string;
+  keep_in_stock: boolean;
 }
 
 interface Props {
@@ -21,11 +24,12 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
   const [search, setSearch] = useState(initialSearch ?? "");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "" });
+  const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [addingNew, setAddingNew] = useState(false);
-  const [newItem, setNewItem] = useState<EditState>({ name: "", category: "", quantity: "", unit: "" });
+  const [newItem, setNewItem] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
+  const [page, setPage] = useState(1);
 
   async function load() {
     setLoading(true);
@@ -36,6 +40,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
       if (filter === "out_of_stock") opts.in_stock = false;
       const data = await listPantryItems(opts);
       setItems(data);
+      setPage(1);
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Failed to load pantry");
@@ -48,6 +53,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
 
   useEffect(() => {
     replaceUrl({ tab: "pantry", filter, search, from: undefined, to: undefined });
+    setPage(1);
   }, [filter, search]);
 
   function startEdit(item: PantryItem) {
@@ -57,6 +63,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
       category: item.category ?? "",
       quantity: item.quantity != null ? String(item.quantity) : "",
       unit: item.unit ?? "",
+      keep_in_stock: item.keep_in_stock === 1,
     });
   }
 
@@ -74,6 +81,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
         quantity: editState.quantity ? Number(editState.quantity) : undefined,
         unit: editState.unit || undefined,
         in_stock: item.in_stock === 1,
+        keep_in_stock: editState.keep_in_stock,
       });
       if (nameChanged) {
         const { deleted } = await deletePantryItem(item.name);
@@ -118,6 +126,22 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
     }
   }
 
+  async function toggleKeepInStock(item: PantryItem) {
+    try {
+      const updated = await updatePantryItem({
+        name: item.name,
+        category: item.category ?? undefined,
+        quantity: item.quantity ?? undefined,
+        unit: item.unit ?? undefined,
+        in_stock: item.in_stock === 1,
+        keep_in_stock: item.keep_in_stock === 0,
+      });
+      setItems(prev => prev.map(i => i.id === item.id ? updated : i));
+    } catch (err) {
+      onAuthError(err);
+    }
+  }
+
   async function markSelectedOut() {
     const names = items.filter(i => selected.has(i.id)).map(i => i.name);
     if (!names.length) return;
@@ -145,10 +169,11 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
         quantity: newItem.quantity ? Number(newItem.quantity) : undefined,
         unit: newItem.unit || undefined,
         in_stock: true,
+        keep_in_stock: newItem.keep_in_stock,
       });
       setItems(prev => [...prev, created]);
       setAddingNew(false);
-      setNewItem({ name: "", category: "", quantity: "", unit: "" });
+      setNewItem({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Add item failed");
@@ -160,7 +185,11 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
     return item.name.toLowerCase().includes(search.toLowerCase());
   });
 
-  const grouped = visible.reduce<Record<string, PantryItem[]>>((acc, item) => {
+  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = visible.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const grouped = paged.reduce<Record<string, PantryItem[]>>((acc, item) => {
     const cat = item.category ?? "Uncategorized";
     (acc[cat] ??= []).push(item);
     return acc;
@@ -210,6 +239,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
               <th>Quantity</th>
               <th>Unit</th>
               <th>In stock</th>
+              <th>Keep stocked</th>
               <th />
             </tr>
           </thead>
@@ -222,6 +252,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                 <td class="edit-row"><input type="text" placeholder="Qty" value={newItem.quantity} onInput={e => setNewItem(s => ({ ...s, quantity: (e.target as HTMLInputElement).value }))} /></td>
                 <td class="edit-row"><input type="text" placeholder="Unit" value={newItem.unit} onInput={e => setNewItem(s => ({ ...s, unit: (e.target as HTMLInputElement).value }))} /></td>
                 <td />
+                <td><input type="checkbox" checked={newItem.keep_in_stock} onChange={e => setNewItem(s => ({ ...s, keep_in_stock: (e.target as HTMLInputElement).checked }))} /></td>
                 <td>
                   <div class="row-actions">
                     <button class="save-btn" onClick={() => void saveNewItem()}>Add</button>
@@ -252,6 +283,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                       <td class="edit-row"><input type="text" value={editState.quantity} onInput={e => setEditState(s => ({ ...s, quantity: (e.target as HTMLInputElement).value }))} /></td>
                       <td class="edit-row"><input type="text" value={editState.unit} onInput={e => setEditState(s => ({ ...s, unit: (e.target as HTMLInputElement).value }))} /></td>
                       <td />
+                      <td><input type="checkbox" checked={editState.keep_in_stock} onChange={e => setEditState(s => ({ ...s, keep_in_stock: (e.target as HTMLInputElement).checked }))} /></td>
                       <td>
                         <div class="row-actions">
                           <button class="save-btn" onClick={() => void saveEdit(item)}>Save</button>
@@ -275,6 +307,14 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
                         />
                       </td>
                       <td>
+                        <input
+                          class="stock-toggle"
+                          type="checkbox"
+                          checked={item.keep_in_stock === 1}
+                          onChange={() => void toggleKeepInStock(item)}
+                        />
+                      </td>
+                      <td>
                         <div class="row-actions">
                           <button onClick={() => startEdit(item)}>Edit</button>
                           <button class="btn-danger" onClick={() => void deleteItem(item)}>Delete</button>
@@ -288,6 +328,13 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
 
           </tbody>
         </table>
+        {totalPages > 1 && (
+          <div class="pagination">
+            <button disabled={safePage === 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+            <span>Page {safePage} of {totalPages} ({visible.length} items)</span>
+            <button disabled={safePage === totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+          </div>
+        )}
         </>
       )}
 

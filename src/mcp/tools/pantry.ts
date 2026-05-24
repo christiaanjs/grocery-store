@@ -1,5 +1,5 @@
 import type { ToolDefinition, ToolResult } from "../../types.ts";
-import { deletePantryItem, listPantryItems, markPantryItemsOut, upsertPantryItem } from "../../db/queries.ts";
+import { deletePantryItem, listPantryCategories, listPantryItems, markPantryItemsOut, upsertPantryItem } from "../../db/queries.ts";
 
 export const PANTRY_TOOLS: ToolDefinition[] = [
   {
@@ -27,6 +27,7 @@ export const PANTRY_TOOLS: ToolDefinition[] = [
         quantity: { type: "number", description: "Quantity on hand" },
         unit: { type: "string", description: "Unit of measure (g, ml, count, etc.)" },
         in_stock: { type: "boolean", description: "Whether the item is in stock" },
+        keep_in_stock: { type: "boolean", description: "Whether to always keep this item in stock (appears on grocery list when out)" },
       },
       required: ["name"],
     },
@@ -73,12 +74,21 @@ export const PANTRY_TOOLS: ToolDefinition[] = [
               quantity: { type: "number" },
               unit: { type: "string" },
               in_stock: { type: "boolean" },
+              keep_in_stock: { type: "boolean" },
             },
             required: ["name"],
           },
         },
       },
       required: ["items"],
+    },
+  },
+  {
+    name: "pantry_list_categories",
+    description: "List all distinct categories currently used in the pantry",
+    inputSchema: {
+      type: "object",
+      properties: {},
     },
   },
 ];
@@ -107,6 +117,7 @@ export async function handlePantryTool(
         quantity: typeof args["quantity"] === "number" ? args["quantity"] : undefined,
         unit: typeof args["unit"] === "string" ? args["unit"] : undefined,
         inStock: typeof args["in_stock"] === "boolean" ? args["in_stock"] : undefined,
+        keepInStock: typeof args["keep_in_stock"] === "boolean" ? args["keep_in_stock"] : undefined,
       });
       return { content: [{ type: "text", text: JSON.stringify(item, null, 2) }] };
     }
@@ -145,10 +156,16 @@ export async function handlePantryTool(
               quantity: typeof i["quantity"] === "number" ? i["quantity"] : undefined,
               unit: typeof i["unit"] === "string" ? i["unit"] : undefined,
               inStock: typeof i["in_stock"] === "boolean" ? i["in_stock"] : undefined,
+              keepInStock: typeof i["keep_in_stock"] === "boolean" ? i["keep_in_stock"] : undefined,
             }),
           ),
       );
       return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+    }
+
+    case "pantry_list_categories": {
+      const categories = await listPantryCategories(db, householdId);
+      return { content: [{ type: "text", text: JSON.stringify(categories, null, 2) }] };
     }
 
     default:

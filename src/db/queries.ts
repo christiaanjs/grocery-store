@@ -137,6 +137,7 @@ export async function upsertPantryItem(
     quantity?: number | null;
     unit?: string | null;
     inStock?: boolean;
+    keepInStock?: boolean;
   },
 ): Promise<PantryItem> {
   const now = Date.now();
@@ -148,13 +149,14 @@ export async function upsertPantryItem(
   if (existing) {
     await db
       .prepare(
-        "UPDATE pantry_items SET category = ?, quantity = ?, unit = ?, in_stock = ?, updated_at = ? WHERE id = ?",
+        "UPDATE pantry_items SET category = ?, quantity = ?, unit = ?, in_stock = ?, keep_in_stock = ?, updated_at = ? WHERE id = ?",
       )
       .bind(
         item.category !== undefined ? item.category : existing.category,
         item.quantity !== undefined ? item.quantity : existing.quantity,
         item.unit !== undefined ? item.unit : existing.unit,
         item.inStock !== undefined ? (item.inStock ? 1 : 0) : existing.in_stock,
+        item.keepInStock !== undefined ? (item.keepInStock ? 1 : 0) : existing.keep_in_stock,
         now,
         existing.id,
       )
@@ -169,7 +171,7 @@ export async function upsertPantryItem(
   const id = crypto.randomUUID();
   await db
     .prepare(
-      "INSERT INTO pantry_items (id, household_id, name, category, quantity, unit, in_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO pantry_items (id, household_id, name, category, quantity, unit, in_stock, keep_in_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(
       id,
@@ -179,6 +181,7 @@ export async function upsertPantryItem(
       item.quantity ?? null,
       item.unit ?? null,
       item.inStock !== undefined ? (item.inStock ? 1 : 0) : 1,
+      item.keepInStock !== undefined ? (item.keepInStock ? 1 : 0) : 0,
       now,
     )
     .run();
@@ -191,8 +194,22 @@ export async function upsertPantryItem(
     quantity: item.quantity ?? null,
     unit: item.unit ?? null,
     in_stock: (item.inStock !== false ? 1 : 0) as 0 | 1,
+    keep_in_stock: (item.keepInStock ? 1 : 0) as 0 | 1,
     updated_at: now,
   };
+}
+
+export async function listPantryCategories(
+  db: D1Database,
+  householdId: string,
+): Promise<string[]> {
+  const result = await db
+    .prepare(
+      "SELECT DISTINCT category FROM pantry_items WHERE household_id = ? AND category IS NOT NULL ORDER BY category",
+    )
+    .bind(householdId)
+    .all<{ category: string }>();
+  return result.results.map((r) => r.category);
 }
 
 export async function deletePantryItem(

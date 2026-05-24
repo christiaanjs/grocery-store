@@ -19,6 +19,7 @@ export interface PantryItem {
   quantity: number | null;
   unit: string | null;
   in_stock: 0 | 1;
+  keep_in_stock: 0 | 1;
   updated_at: number;
 }
 

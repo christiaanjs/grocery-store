@@ -17,7 +17,11 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): GroceryItem[] {
+export function buildGroceryList(
+  meals: MealEntry[],
+  pantry: PantryItem[],
+  opts: { includeKeepInStock?: boolean } = {},
+): GroceryItem[] {
   const pantryMap = new Map<string, PantryItem>();
   for (const p of pantry) {
     pantryMap.set(p.name.toLowerCase(), p);
@@ -62,6 +66,18 @@ export function buildGroceryList(meals: MealEntry[], pantry: PantryItem[]): Groc
     }
   }
 
+  // Add pantry items marked keep-in-stock that are currently out of stock
+  if (opts.includeKeepInStock !== false) {
+    for (const p of pantry) {
+      if (p.keep_in_stock === 1 && p.in_stock === 0) {
+        const key = p.name.toLowerCase();
+        if (!byName.has(key)) {
+          byName.set(key, { name: p.name, category: p.category });
+        }
+      }
+    }
+  }
+
   // Keep only items that are absent from the pantry or out of stock
   return [...byName.values()]
     .filter(ing => {
@@ -79,7 +95,7 @@ export const GROCERY_TOOLS: ToolDefinition[] = [
   {
     name: "grocery_list",
     description:
-      "Returns ingredients from planned meals that are missing from or out of stock in the pantry, for a given date range. Aggregates quantities across meals. Defaults to the current week.",
+      "Returns ingredients needed for planned meals that are missing or out of stock, plus pantry items marked as keep-in-stock that are currently out of stock. Aggregates quantities across meals. Defaults to the current week.",
     inputSchema: {
       type: "object",
       properties: {
@@ -90,6 +106,10 @@ export const GROCERY_TOOLS: ToolDefinition[] = [
         date_to: {
           type: "string",
           description: "End of date range (ISO date, inclusive). Defaults to this Sunday.",
+        },
+        include_keep_in_stock: {
+          type: "boolean",
+          description: "Include out-of-stock pantry items marked as keep-in-stock. Defaults to true.",
         },
       },
     },
@@ -109,12 +129,13 @@ export async function handleGroceryTool(
   const weekStart = currentWeekStart();
   const dateFrom = typeof args["date_from"] === "string" ? args["date_from"] : weekStart;
   const dateTo = typeof args["date_to"] === "string" ? args["date_to"] : addDays(weekStart, 6);
+  const includeKeepInStock = args["include_keep_in_stock"] !== false;
 
   const [meals, pantry] = await Promise.all([
     getMealEntries(db, householdId, dateFrom, dateTo),
     listPantryItems(db, householdId),
   ]);
 
-  const items = buildGroceryList(meals, pantry);
+  const items = buildGroceryList(meals, pantry, { includeKeepInStock });
   return { content: [{ type: "text", text: JSON.stringify(items, null, 2) }] };
 }

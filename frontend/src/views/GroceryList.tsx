@@ -45,6 +45,7 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(weekEnd);
   const [groupByCategory, setGroupByCategory] = useState(true);
+  const [includeKeepInStock, setIncludeKeepInStock] = useState(true);
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,14 +71,14 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
     setSelected(new Set());
     setExportUrl(null);
     try {
-      setItems(await getGroceryList(from, to));
+      setItems(await getGroceryList(from, to, includeKeepInStock));
     } catch (err) {
       onAuthError(err);
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [from, to, onAuthError]);
+  }, [from, to, includeKeepInStock, onAuthError]);
 
   useEffect(() => {
     void load();
@@ -246,6 +247,14 @@ export function GroceryList({ onAuthError }: { onAuthError: (err: unknown) => vo
             onChange={e => setGroupByCategory((e.target as HTMLInputElement).checked)}
           />
           Group by category
+        </label>
+        <label class="grocery-group-toggle">
+          <input
+            type="checkbox"
+            checked={includeKeepInStock}
+            onChange={e => setIncludeKeepInStock((e.target as HTMLInputElement).checked)}
+          />
+          Include keep-in-stock items
         </label>
         <button
           class="btn-primary grocery-copy-btn"

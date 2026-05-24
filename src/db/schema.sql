@@ -21,6 +21,7 @@ CREATE TABLE pantry_items (
   quantity REAL,
   unit TEXT,                    -- 'g', 'ml', 'count', etc.
   in_stock INTEGER NOT NULL DEFAULT 1,  -- 0 = run out
+  keep_in_stock INTEGER NOT NULL DEFAULT 0,  -- 1 = always restock when out
   updated_at INTEGER NOT NULL
 );
 
