@@ -302,6 +302,41 @@ export async function getMealEntriesByDates(
   return result.results;
 }
 
+export async function batchSetMealEntries(
+  db: D1Database,
+  householdId: string,
+  entries: Array<{ date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] }>,
+  deleteDates: string[] = [],
+): Promise<MealEntry[]> {
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = entries.map(e => {
+    const id = crypto.randomUUID();
+    return db
+      .prepare(
+        `INSERT INTO meal_entries (id, household_id, date, name, ingredients, steps, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(household_id, date) DO UPDATE SET
+           name = excluded.name,
+           ingredients = excluded.ingredients,
+           steps = excluded.steps`,
+      )
+      .bind(id, householdId, e.date, e.name, e.ingredients ? JSON.stringify(e.ingredients) : null, e.steps ? JSON.stringify(e.steps) : null, now);
+  });
+
+  if (deleteDates.length > 0) {
+    const placeholders = deleteDates.map(() => "?").join(", ");
+    statements.push(
+      db
+        .prepare(`DELETE FROM meal_entries WHERE household_id = ? AND date IN (${placeholders})`)
+        .bind(householdId, ...deleteDates),
+    );
+  }
+
+  if (statements.length > 0) await db.batch(statements);
+
+  return getMealEntriesByDates(db, householdId, entries.map(e => e.date));
+}
+
 export async function deleteMealEntries(
   db: D1Database,
   householdId: string,

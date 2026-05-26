@@ -72,32 +72,19 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
     const draggedMeal = (event.extendedProps as { meal: MealEntryData }).meal;
     const occupant = meals.find(m => m.date === newDate && m.date !== oldDate);
 
+    // Pass all changes as one list — backend applies them atomically via db.batch().
+    // Swap: two full entries with flipped dates. Move: one full entry + {date: oldDate} to clear.
+    const updates: Array<MealEntryData | { date: string }> = [
+      { date: newDate, name: draggedMeal.name, ingredients: draggedMeal.ingredients, steps: draggedMeal.steps },
+    ];
+    if (occupant) {
+      updates.push({ date: oldDate, name: occupant.name, ingredients: occupant.ingredients, steps: occupant.steps });
+    } else {
+      updates.push({ date: oldDate });
+    }
+
     try {
-      const updates: Parameters<typeof setMeals>[0] = [];
-
-      updates.push({
-        date: newDate,
-        name: draggedMeal.name,
-        ingredients: draggedMeal.ingredients,
-        steps: draggedMeal.steps,
-      });
-
-      if (occupant) {
-        // Swap: displace the occupant back to the old date
-        updates.push({
-          date: oldDate,
-          name: occupant.name,
-          ingredients: occupant.ingredients,
-          steps: occupant.steps,
-        });
-      } else {
-        // Pure move: clear the old date
-        await deleteMeals([oldDate]);
-      }
-
       const saved = await setMeals(updates);
-
-      // Update state — FullCalendar re-renders reactively from the events prop
       setMealsState(prev => {
         const next = prev.filter(m => m.date !== newDate && m.date !== oldDate);
         return [...next, ...saved];
