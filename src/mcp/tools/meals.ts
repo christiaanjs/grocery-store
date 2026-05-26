@@ -35,15 +35,21 @@ function parseDateRange(args: Record<string, unknown>): { dateFrom: string; date
   return { dateFrom: weekStart, dateTo: addDays(weekStart, 6) };
 }
 
-function parseEntry(raw: unknown): { date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] } | null {
+type MealSetAction = { action: "set"; date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] };
+type MealClearAction = { action: "clear"; date: string };
+type MealAction = MealSetAction | MealClearAction;
+
+function parseMealAction(raw: unknown): MealAction | null {
   if (typeof raw !== "object" || raw === null) return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj["date"] !== "string" || typeof obj["name"] !== "string") return null;
+  if (typeof obj["date"] !== "string") return null;
 
-  const entry: { date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] } = {
-    date: obj["date"],
-    name: obj["name"],
-  };
+  if (obj["name"] === undefined || obj["name"] === null) {
+    return { action: "clear", date: obj["date"] };
+  }
+  if (typeof obj["name"] !== "string") return null;
+
+  const entry: MealSetAction = { action: "set", date: obj["date"], name: obj["name"] };
 
   if (Array.isArray(obj["ingredients"])) {
     entry.ingredients = obj["ingredients"].flatMap((i) => {
@@ -101,18 +107,18 @@ export const MEAL_TOOLS: ToolDefinition[] = [
   {
     name: "meal_plan_set",
     description:
-      "Set or update meal entries. Pass one or more meals — existing entries for the same date are replaced. All upserts and optional deletes are applied atomically in a single transaction. Use delete_dates to move a meal: pass the new entry in meals and the old date in delete_dates.",
+      "Set, update, or clear meal entries. Each object in meals must have a date; include name to set/update that day, omit name to clear it. All changes are applied atomically in a single transaction — pass both the new and old dates to move or swap meals without a separate delete call.",
     inputSchema: {
       type: "object",
       properties: {
         meals: {
           type: "array",
-          description: "List of meal entries to set.",
+          description: "List of meal actions. Include name to upsert; omit name to clear that date.",
           items: {
             type: "object",
             properties: {
               date: { type: "string", description: "ISO date (e.g. '2026-05-07')." },
-              name: { type: "string", description: "Meal name." },
+              name: { type: "string", description: "Meal name. Omit to clear this date." },
               ingredients: {
                 type: "array",
                 items: {
@@ -130,13 +136,8 @@ export const MEAL_TOOLS: ToolDefinition[] = [
                 items: { type: "string" },
               },
             },
-            required: ["date", "name"],
+            required: ["date"],
           },
-        },
-        delete_dates: {
-          type: "array",
-          items: { type: "string" },
-          description: "ISO dates to delete atomically alongside the upserts (e.g. the old date when moving a meal).",
         },
       },
       required: ["meals"],
@@ -181,24 +182,19 @@ export async function handleMealTool(
       if (!Array.isArray(args["meals"]) || args["meals"].length === 0) {
         return { content: [{ type: "text", text: "meals must be a non-empty array" }], isError: true };
       }
-      const entries = (args["meals"] as unknown[]).map(parseEntry);
-      const invalid = entries.findIndex((e) => e === null);
+      const actions = (args["meals"] as unknown[]).map(parseMealAction);
+      const invalid = actions.findIndex((a) => a === null);
       if (invalid !== -1) {
         return {
-          content: [{ type: "text", text: `meals[${invalid}] is missing required fields: date and name` }],
+          content: [{ type: "text", text: `meals[${invalid}] is missing required field: date` }],
           isError: true,
         };
       }
-      const deleteDates = Array.isArray(args["delete_dates"])
-        ? (args["delete_dates"] as unknown[]).filter((d): d is string => typeof d === "string")
-        : [];
+      const validActions = actions as MealAction[];
+      const toSet = validActions.filter((a): a is MealSetAction => a.action === "set");
+      const toClear = validActions.filter((a): a is MealClearAction => a.action === "clear").map(a => a.date);
 
-      const saved = await batchSetMealEntries(
-        env.DB,
-        householdId,
-        entries as NonNullable<ReturnType<typeof parseEntry>>[],
-        deleteDates,
-      );
+      const saved = await batchSetMealEntries(env.DB, householdId, toSet, toClear);
 
       // Update Vectorize (best-effort — never fail the write response)
       const vb = getVectorizeBindings(env);
@@ -206,7 +202,7 @@ export async function handleMealTool(
         const vectorOps: Promise<unknown>[] = saved.map((meal) =>
           upsertMealVector(vb.index, householdId, meal.date, vb.ai, meal.name, meal.ingredients, []),
         );
-        for (const date of deleteDates) {
+        for (const date of toClear) {
           vectorOps.push(deleteMealVector(vb.index, householdId, date));
         }
         const vectorResults = await Promise.allSettled(vectorOps);

@@ -133,11 +133,8 @@ export const bulkUpdatePantry = (
 export const getMealPlan = (dateFrom: string, dateTo: string) =>
   mcpCall<MealEntryData[]>("meal_plan_get", { date_from: dateFrom, date_to: dateTo });
 
-export const setMeals = (meals: MealEntryData[], deleteDates?: string[]) =>
-  mcpCall<MealEntryData[]>("meal_plan_set", {
-    meals,
-    ...(deleteDates?.length ? { delete_dates: deleteDates } : {}),
-  });
+export const setMeals = (meals: Array<MealEntryData | { date: string }>) =>
+  mcpCall<MealEntryData[]>("meal_plan_set", { meals });
 
 export const deleteMeals = (dates: string[]) =>
   mcpCall<void>("meal_plan_delete", { dates });

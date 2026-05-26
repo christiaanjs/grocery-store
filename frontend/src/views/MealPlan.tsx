@@ -72,18 +72,19 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
     const draggedMeal = (event.extendedProps as { meal: MealEntryData }).meal;
     const occupant = meals.find(m => m.date === newDate && m.date !== oldDate);
 
-    // Build the two entries for a swap, or one entry + delete_dates for a move.
-    // Everything lands in a single db.batch() on the backend — atomic.
-    const updates: MealEntryData[] = [
+    // Pass all changes as one list — backend applies them atomically via db.batch().
+    // Swap: two full entries with flipped dates. Move: one full entry + {date: oldDate} to clear.
+    const updates: Array<MealEntryData | { date: string }> = [
       { date: newDate, name: draggedMeal.name, ingredients: draggedMeal.ingredients, steps: draggedMeal.steps },
     ];
     if (occupant) {
       updates.push({ date: oldDate, name: occupant.name, ingredients: occupant.ingredients, steps: occupant.steps });
+    } else {
+      updates.push({ date: oldDate });
     }
-    const deleteDates = occupant ? [] : [oldDate];
 
     try {
-      const saved = await setMeals(updates, deleteDates);
+      const saved = await setMeals(updates);
       setMealsState(prev => {
         const next = prev.filter(m => m.date !== newDate && m.date !== oldDate);
         return [...next, ...saved];

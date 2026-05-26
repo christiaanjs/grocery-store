@@ -321,8 +321,8 @@ describe("meal plans", () => {
     expect(res.result?.["isError"]).toBe(true);
   });
 
-  it("returns error when a meal entry is missing date or name", async () => {
-    const res = await call(33, "meal_plan_set", { meals: [{ date: MON }] });
+  it("returns error when a meal entry is missing date", async () => {
+    const res = await call(33, "meal_plan_set", { meals: [{ name: "pasta" }] });
     expect(res.result?.["isError"]).toBe(true);
   });
 
@@ -331,12 +331,11 @@ describe("meal plans", () => {
   const NEXT_TUE = "2026-05-12";
   const NEXT_WED = "2026-05-13";
 
-  it("moves a meal atomically via delete_dates (no occupant at destination)", async () => {
-    // Seed NEXT_MON, then move it to NEXT_WED in a single atomic call
+  it("moves a meal atomically — clear entry + set entry in same call", async () => {
+    // Seed NEXT_MON, then move it to NEXT_WED: pass both in one meals array
     await resultText(34, "meal_plan_set", { meals: [{ date: NEXT_MON, name: "lasagne" }] });
     await resultText(35, "meal_plan_set", {
-      meals: [{ date: NEXT_WED, name: "lasagne" }],
-      delete_dates: [NEXT_MON],
+      meals: [{ date: NEXT_WED, name: "lasagne" }, { date: NEXT_MON }],
     });
     const entries = JSON.parse(await resultText(36, "meal_plan_get", { date_from: NEXT_MON, date_to: NEXT_WED })) as Array<{ date: string }>;
     expect(entries.some(e => e.date === NEXT_MON)).toBe(false);
