@@ -139,6 +139,9 @@ export const setMeals = (meals: MealEntryData[]) =>
 export const deleteMeals = (dates: string[]) =>
   mcpCall<void>("meal_plan_delete", { dates });
 
+export const moveMeal = (fromDate: string, toDate: string) =>
+  mcpCall<{ moved: MealEntryData; displaced: MealEntryData | null }>("meal_plan_move", { from_date: fromDate, to_date: toDate });
+
 export interface MealFeedback {
   date: string;
   rating?: number;

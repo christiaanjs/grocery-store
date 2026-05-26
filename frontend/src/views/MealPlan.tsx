@@ -7,7 +7,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventInput, EventDropArg } from "@fullcalendar/core";
-import { getMealPlan, setMeals, deleteMeals, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
+import { getMealPlan, setMeals, deleteMeals, moveMeal, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
 import { replaceUrl, inferInitialView, localDateStr } from "../hooks/useUrlState.ts";
 
 interface Props {
@@ -69,38 +69,12 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
   async function onEventDrop({ event, oldEvent, revert }: EventDropArg) {
     const newDate = event.startStr.slice(0, 10);
     const oldDate = (oldEvent.startStr ?? "").slice(0, 10);
-    const draggedMeal = (event.extendedProps as { meal: MealEntryData }).meal;
-    const occupant = meals.find(m => m.date === newDate && m.date !== oldDate);
 
     try {
-      const updates: Parameters<typeof setMeals>[0] = [];
-
-      updates.push({
-        date: newDate,
-        name: draggedMeal.name,
-        ingredients: draggedMeal.ingredients,
-        steps: draggedMeal.steps,
-      });
-
-      if (occupant) {
-        // Swap: displace the occupant back to the old date
-        updates.push({
-          date: oldDate,
-          name: occupant.name,
-          ingredients: occupant.ingredients,
-          steps: occupant.steps,
-        });
-      } else {
-        // Pure move: clear the old date
-        await deleteMeals([oldDate]);
-      }
-
-      const saved = await setMeals(updates);
-
-      // Update state — FullCalendar re-renders reactively from the events prop
+      const { moved, displaced } = await moveMeal(oldDate, newDate);
       setMealsState(prev => {
         const next = prev.filter(m => m.date !== newDate && m.date !== oldDate);
-        return [...next, ...saved];
+        return [...next, moved, ...(displaced ? [displaced] : [])];
       });
     } catch (err) {
       revert();

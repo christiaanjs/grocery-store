@@ -104,6 +104,7 @@ describe("tools/list", () => {
       "pantry_list_categories",
       "meal_plan_get",
       "meal_plan_set",
+      "meal_plan_move",
       "meal_plan_delete",
       "preferences_list",
       "preferences_set",

@@ -1,5 +1,5 @@
 import type { Env, MealEntryData, MealIngredient, ToolDefinition, ToolResult } from "../../types.ts";
-import { deleteMealEntries, getMealEntries, upsertMealEntry } from "../../db/queries.ts";
+import { deleteMealEntries, getMealEntries, moveMealEntry, upsertMealEntry } from "../../db/queries.ts";
 import { deleteMealVector, getVectorizeBindings, upsertMealVector } from "../../vectorize.ts";
 
 function currentWeekStart(): string {
@@ -138,6 +138,19 @@ export const MEAL_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "meal_plan_move",
+    description:
+      "Move a meal from one date to another. If the target date already has a meal, the two meals are swapped atomically. Prefer this over separate delete + set calls.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_date: { type: "string", description: "ISO date to move the meal from (e.g. '2026-05-07')." },
+        to_date: { type: "string", description: "ISO date to move the meal to (e.g. '2026-05-09')." },
+      },
+      required: ["from_date", "to_date"],
+    },
+  },
+  {
     name: "meal_plan_delete",
     description: "Delete meal entries for one or more specific dates.",
     inputSchema: {
@@ -206,6 +219,50 @@ export async function handleMealTool(
       return {
         content: [{ type: "text", text: JSON.stringify(saved.map(toEntryData), null, 2) }],
       };
+    }
+
+    case "meal_plan_move": {
+      const fromDate = args["from_date"];
+      const toDate = args["to_date"];
+      if (typeof fromDate !== "string" || typeof toDate !== "string") {
+        return { content: [{ type: "text", text: "from_date and to_date are required strings" }], isError: true };
+      }
+      if (fromDate === toDate) {
+        return { content: [{ type: "text", text: "from_date and to_date must be different" }], isError: true };
+      }
+      try {
+        const { moved, displaced } = await moveMealEntry(env.DB, householdId, fromDate, toDate);
+
+        const vb = getVectorizeBindings(env);
+        if (vb) {
+          const vectorOps: Promise<unknown>[] = [
+            upsertMealVector(vb.index, householdId, toDate, vb.ai, moved.name, moved.ingredients, []),
+          ];
+          if (displaced) {
+            vectorOps.push(
+              upsertMealVector(vb.index, householdId, fromDate, vb.ai, displaced.name, displaced.ingredients, []),
+            );
+          } else {
+            vectorOps.push(deleteMealVector(vb.index, householdId, fromDate));
+          }
+          const vectorResults = await Promise.allSettled(vectorOps);
+          for (const r of vectorResults) {
+            if (r.status === "rejected") console.error("Failed to update meal vector:", r.reason);
+          }
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ moved: toEntryData(moved), displaced: displaced ? toEntryData(displaced) : null }),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: err instanceof Error ? err.message : "Move failed" }],
+          isError: true,
+        };
+      }
     }
 
     case "meal_plan_delete": {
