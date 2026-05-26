@@ -7,7 +7,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventInput, EventDropArg } from "@fullcalendar/core";
-import { getMealPlan, setMeals, deleteMeals, moveMeal, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
+import { getMealPlan, setMeals, deleteMeals, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
 import { replaceUrl, inferInitialView, localDateStr } from "../hooks/useUrlState.ts";
 
 interface Props {
@@ -69,12 +69,24 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
   async function onEventDrop({ event, oldEvent, revert }: EventDropArg) {
     const newDate = event.startStr.slice(0, 10);
     const oldDate = (oldEvent.startStr ?? "").slice(0, 10);
+    const draggedMeal = (event.extendedProps as { meal: MealEntryData }).meal;
+    const occupant = meals.find(m => m.date === newDate && m.date !== oldDate);
+
+    // Build the two entries for a swap, or one entry + delete_dates for a move.
+    // Everything lands in a single db.batch() on the backend — atomic.
+    const updates: MealEntryData[] = [
+      { date: newDate, name: draggedMeal.name, ingredients: draggedMeal.ingredients, steps: draggedMeal.steps },
+    ];
+    if (occupant) {
+      updates.push({ date: oldDate, name: occupant.name, ingredients: occupant.ingredients, steps: occupant.steps });
+    }
+    const deleteDates = occupant ? [] : [oldDate];
 
     try {
-      const { moved, displaced } = await moveMeal(oldDate, newDate);
+      const saved = await setMeals(updates, deleteDates);
       setMealsState(prev => {
         const next = prev.filter(m => m.date !== newDate && m.date !== oldDate);
-        return [...next, moved, ...(displaced ? [displaced] : [])];
+        return [...next, ...saved];
       });
     } catch (err) {
       revert();

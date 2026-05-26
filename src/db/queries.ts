@@ -302,44 +302,39 @@ export async function getMealEntriesByDates(
   return result.results;
 }
 
-export async function moveMealEntry(
+export async function batchSetMealEntries(
   db: D1Database,
   householdId: string,
-  fromDate: string,
-  toDate: string,
-): Promise<{ moved: MealEntry; displaced: MealEntry | null }> {
-  const [fromEntry, toEntry] = await Promise.all([
-    db.prepare("SELECT * FROM meal_entries WHERE household_id = ? AND date = ?")
-      .bind(householdId, fromDate).first<MealEntry>(),
-    db.prepare("SELECT * FROM meal_entries WHERE household_id = ? AND date = ?")
-      .bind(householdId, toDate).first<MealEntry>(),
-  ]);
+  entries: Array<{ date: string; name: string; ingredients?: MealIngredient[]; steps?: string[] }>,
+  deleteDates: string[] = [],
+): Promise<MealEntry[]> {
+  const now = Date.now();
+  const statements: D1PreparedStatement[] = entries.map(e => {
+    const id = crypto.randomUUID();
+    return db
+      .prepare(
+        `INSERT INTO meal_entries (id, household_id, date, name, ingredients, steps, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(household_id, date) DO UPDATE SET
+           name = excluded.name,
+           ingredients = excluded.ingredients,
+           steps = excluded.steps`,
+      )
+      .bind(id, householdId, e.date, e.name, e.ingredients ? JSON.stringify(e.ingredients) : null, e.steps ? JSON.stringify(e.steps) : null, now);
+  });
 
-  if (!fromEntry) throw new Error(`No meal on ${fromDate}`);
-
-  if (toEntry) {
-    // Swap via a temporary date to avoid a unique-constraint conflict on (household_id, date).
-    // Each UPDATE is individually valid: step 1 frees fromDate, step 2 reuses it, step 3 fills toDate.
-    const tempDate = `__swap_${crypto.randomUUID()}__`;
-    await db.batch([
-      db.prepare("UPDATE meal_entries SET date = ? WHERE household_id = ? AND date = ?")
-        .bind(tempDate, householdId, fromDate),
-      db.prepare("UPDATE meal_entries SET date = ? WHERE household_id = ? AND date = ?")
-        .bind(fromDate, householdId, toDate),
-      db.prepare("UPDATE meal_entries SET date = ? WHERE household_id = ? AND date = ?")
-        .bind(toDate, householdId, tempDate),
-    ]);
-    return {
-      moved: { ...fromEntry, date: toDate },
-      displaced: { ...toEntry, date: fromDate },
-    };
+  if (deleteDates.length > 0) {
+    const placeholders = deleteDates.map(() => "?").join(", ");
+    statements.push(
+      db
+        .prepare(`DELETE FROM meal_entries WHERE household_id = ? AND date IN (${placeholders})`)
+        .bind(householdId, ...deleteDates),
+    );
   }
 
-  await db.batch([
-    db.prepare("UPDATE meal_entries SET date = ? WHERE household_id = ? AND date = ?")
-      .bind(toDate, householdId, fromDate),
-  ]);
-  return { moved: { ...fromEntry, date: toDate }, displaced: null };
+  if (statements.length > 0) await db.batch(statements);
+
+  return getMealEntriesByDates(db, householdId, entries.map(e => e.date));
 }
 
 export async function deleteMealEntries(

@@ -104,7 +104,6 @@ describe("tools/list", () => {
       "pantry_list_categories",
       "meal_plan_get",
       "meal_plan_set",
-      "meal_plan_move",
       "meal_plan_delete",
       "preferences_list",
       "preferences_set",
@@ -325,6 +324,43 @@ describe("meal plans", () => {
   it("returns error when a meal entry is missing date or name", async () => {
     const res = await call(33, "meal_plan_set", { meals: [{ date: MON }] });
     expect(res.result?.["isError"]).toBe(true);
+  });
+
+  // Use a separate week to avoid disturbing MON/TUE/FRI state that later describe blocks depend on.
+  const NEXT_MON = "2026-05-11";
+  const NEXT_TUE = "2026-05-12";
+  const NEXT_WED = "2026-05-13";
+
+  it("moves a meal atomically via delete_dates (no occupant at destination)", async () => {
+    // Seed NEXT_MON, then move it to NEXT_WED in a single atomic call
+    await resultText(34, "meal_plan_set", { meals: [{ date: NEXT_MON, name: "lasagne" }] });
+    await resultText(35, "meal_plan_set", {
+      meals: [{ date: NEXT_WED, name: "lasagne" }],
+      delete_dates: [NEXT_MON],
+    });
+    const entries = JSON.parse(await resultText(36, "meal_plan_get", { date_from: NEXT_MON, date_to: NEXT_WED })) as Array<{ date: string }>;
+    expect(entries.some(e => e.date === NEXT_MON)).toBe(false);
+    expect(entries.some(e => e.date === NEXT_WED)).toBe(true);
+  });
+
+  it("swaps two meals atomically by passing both entries (no delete_dates needed)", async () => {
+    // Seed NEXT_TUE + NEXT_WED, then swap by passing both with flipped names
+    await resultText(37, "meal_plan_set", {
+      meals: [
+        { date: NEXT_TUE, name: "curry" },
+        { date: NEXT_WED, name: "lasagne" },
+      ],
+    });
+    await resultText(38, "meal_plan_set", {
+      meals: [
+        { date: NEXT_TUE, name: "lasagne" },
+        { date: NEXT_WED, name: "curry" },
+      ],
+    });
+    const tue = JSON.parse(await resultText(39, "meal_plan_get", { date: NEXT_TUE })) as Array<{ name: string }>;
+    const wed = JSON.parse(await resultText(40, "meal_plan_get", { date: NEXT_WED })) as Array<{ name: string }>;
+    expect(tue[0]?.name).toBe("lasagne");
+    expect(wed[0]?.name).toBe("curry");
   });
 });
 
