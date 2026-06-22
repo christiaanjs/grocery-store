@@ -34,14 +34,16 @@ interface Props {
   onAuthError: (err: unknown) => void;
   initialFilter?: Filter;
   initialSearch?: string;
+  initialCategory?: string;
 }
 
-export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
+export function Pantry({ onAuthError, initialFilter, initialSearch, initialCategory }: Props) {
   const pageSize = usePageSize();
   const [items, setItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
   const [search, setSearch] = useState(initialSearch ?? "");
+  const [categoryFilter, setCategoryFilter] = useState<string>(initialCategory ?? "");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,9 +73,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   useEffect(() => { void load(); }, [filter]);
 
   useEffect(() => {
-    replaceUrl({ tab: "pantry", filter, search, from: undefined, to: undefined });
+    replaceUrl({ tab: "pantry", filter, search, category: categoryFilter || undefined, from: undefined, to: undefined });
     setPage(1);
-  }, [filter, search]);
+  }, [filter, search, categoryFilter]);
 
   function startEdit(item: PantryItem) {
     setEditingId(item.id);
@@ -200,8 +202,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   }
 
   const visible = items.filter(item => {
-    if (!search) return true;
-    return item.name.toLowerCase().includes(search.toLowerCase());
+    if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (categoryFilter && (item.category ?? "") !== categoryFilter) return false;
+    return true;
   });
 
   const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
@@ -238,6 +241,14 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
             {f === "all" ? "All" : f === "in_stock" ? "In stock" : "Out of stock"}
           </button>
         ))}
+        <select
+          class="category-filter"
+          value={categoryFilter}
+          onChange={e => setCategoryFilter((e.target as HTMLSelectElement).value)}
+        >
+          <option value="">All categories</option>
+          {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
         <button class="add-item-btn" onClick={() => setAddingNew(true)}>+ Add item</button>
       </div>
 

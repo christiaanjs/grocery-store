@@ -17,6 +17,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>(() => parseUrl().tab);
   const [initialFilter, setInitialFilter] = useState<Filter>(() => parseUrl().filter);
   const [initialSearch, setInitialSearch] = useState<string>(() => parseUrl().search);
+  const [initialCategory, setInitialCategory] = useState<string | undefined>(() => parseUrl().category);
   const [initialFrom, setInitialFrom] = useState<string | undefined>(() => parseUrl().from);
   const [initialTo, setInitialTo] = useState<string | undefined>(() => parseUrl().to);
   const [viewKey, setViewKey] = useState(0);
@@ -53,6 +54,7 @@ export function App() {
       setTab(s.tab);
       setInitialFilter(s.filter);
       setInitialSearch(s.search);
+      setInitialCategory(s.category);
       setInitialFrom(s.from);
       setInitialTo(s.to);
       setViewKey(k => k + 1);
@@ -67,6 +69,7 @@ export function App() {
       tab: t,
       filter: t === "pantry" ? initialFilter : "all",
       search: t === "pantry" ? initialSearch : "",
+      category: t === "pantry" ? initialCategory : undefined,
       from: t === "meals" ? initialFrom : undefined,
       to: t === "meals" ? initialTo : undefined,
     });
@@ -141,6 +144,7 @@ export function App() {
             key={viewKey}
             initialFilter={initialFilter}
             initialSearch={initialSearch}
+            initialCategory={initialCategory}
             onAuthError={onAuthError}
           />
         )}
