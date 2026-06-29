@@ -147,6 +147,26 @@ button {
   border-color: #111;
 }
 
+.category-filter {
+  padding: 0 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  background: #fff;
+  line-height: 1;
+  overflow: hidden;
+}
+
+.category-filter option {
+  padding: 0.35rem 0.3rem;
+}
+
+.category-filter option:checked {
+  background: #111;
+  color: #fff;
+}
+
 .add-item-btn {
   padding: 0.4rem 1rem;
   background: #111;

@@ -43,7 +43,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
   const [search, setSearch] = useState(initialSearch ?? "");
-  const [categoryFilter, setCategoryFilter] = useState<string>(initialCategory ?? "");
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(
+    initialCategory ? new Set(initialCategory.split(",").filter(Boolean)) : new Set()
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -73,7 +75,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
   useEffect(() => { void load(); }, [filter]);
 
   useEffect(() => {
-    replaceUrl({ tab: "pantry", filter, search, category: categoryFilter || undefined, from: undefined, to: undefined });
+    replaceUrl({ tab: "pantry", filter, search, category: categoryFilter.size ? [...categoryFilter].join(",") : undefined, from: undefined, to: undefined });
     setPage(1);
   }, [filter, search, categoryFilter]);
 
@@ -203,7 +205,7 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
 
   const visible = items.filter(item => {
     if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (categoryFilter && (item.category ?? "") !== categoryFilter) return false;
+    if (categoryFilter.size && !categoryFilter.has(item.category ?? "")) return false;
     return true;
   });
 
@@ -241,14 +243,21 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
             {f === "all" ? "All" : f === "in_stock" ? "In stock" : "Out of stock"}
           </button>
         ))}
-        <select
-          class="category-filter"
-          value={categoryFilter}
-          onChange={e => setCategoryFilter((e.target as HTMLSelectElement).value)}
-        >
-          <option value="">All categories</option>
-          {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        {allCategories.length > 0 && (
+          <select
+            class="category-filter"
+            multiple
+            size={allCategories.length}
+            onChange={e => {
+              const opts = Array.from((e.target as HTMLSelectElement).options);
+              setCategoryFilter(new Set(opts.filter(o => o.selected).map(o => o.value)));
+            }}
+          >
+            {allCategories.map(c => (
+              <option key={c} value={c} selected={categoryFilter.has(c)}>{c}</option>
+            ))}
+          </select>
+        )}
         <button class="add-item-btn" onClick={() => setAddingNew(true)}>+ Add item</button>
       </div>
 
