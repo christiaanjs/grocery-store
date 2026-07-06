@@ -1,4 +1,4 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import { listPantryItems, updatePantryItem, markItemsOut, deletePantryItem, type PantryItem } from "../api.ts";
 import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
@@ -53,6 +53,19 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
   const [addingNew, setAddingNew] = useState(false);
   const [newItem, setNewItem] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [page, setPage] = useState(1);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const categoryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!categoryOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+        setCategoryOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [categoryOpen]);
 
   async function load() {
     setLoading(true);
@@ -244,19 +257,42 @@ export function Pantry({ onAuthError, initialFilter, initialSearch, initialCateg
           </button>
         ))}
         {allCategories.length > 0 && (
-          <select
-            class="category-filter"
-            multiple
-            size={allCategories.length}
-            onChange={e => {
-              const opts = Array.from((e.target as HTMLSelectElement).options);
-              setCategoryFilter(new Set(opts.filter(o => o.selected).map(o => o.value)));
-            }}
-          >
-            {allCategories.map(c => (
-              <option key={c} value={c} selected={categoryFilter.has(c)}>{c}</option>
-            ))}
-          </select>
+          <div class="category-filter" ref={categoryRef}>
+            <button
+              class={`filter-btn${categoryFilter.size > 0 ? " active" : ""}`}
+              onClick={() => setCategoryOpen(o => !o)}
+            >
+              {categoryFilter.size === 0
+                ? "Categories ▾"
+                : `Categories (${categoryFilter.size}) ▾`}
+            </button>
+            {categoryOpen && (
+              <div class="category-popover">
+                {allCategories.map(c => (
+                  <label key={c} class="category-option">
+                    <input
+                      type="checkbox"
+                      checked={categoryFilter.has(c)}
+                      onChange={() => {
+                        setCategoryFilter(prev => {
+                          const next = new Set(prev);
+                          if (next.has(c)) next.delete(c);
+                          else next.add(c);
+                          return next;
+                        });
+                      }}
+                    />
+                    {c}
+                  </label>
+                ))}
+                {categoryFilter.size > 0 && (
+                  <button class="category-clear" onClick={() => setCategoryFilter(new Set())}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <button class="add-item-btn" onClick={() => setAddingNew(true)}>+ Add item</button>
       </div>

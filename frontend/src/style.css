@@ -148,23 +148,56 @@ button {
 }
 
 .category-filter {
-  padding: 0 0.5rem;
+  position: relative;
+}
+
+.category-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.category-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
   font-size: 0.8rem;
+  color: #374151;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.category-option:hover {
+  background: #f3f4f6;
+}
+
+.category-clear {
+  margin-top: 0.25rem;
+  padding: 0.3rem 0.5rem;
+  border: none;
+  background: none;
+  font-size: 0.75rem;
   color: #6b7280;
-  background: #fff;
-  line-height: 1;
-  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
 }
 
-.category-filter option {
-  padding: 0.35rem 0.3rem;
-}
-
-.category-filter option:checked {
-  background: #111;
-  color: #fff;
+.category-clear:hover {
+  color: #111;
+  text-decoration: underline;
 }
 
 .add-item-btn {
