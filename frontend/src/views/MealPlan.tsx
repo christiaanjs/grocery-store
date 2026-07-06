@@ -51,6 +51,7 @@ export function MealPlan({ onAuthError, initialFrom, initialTo }: Props) {
       tab: "meals",
       filter: "all",
       search: "",
+      category: undefined,
       from: localDateStr(view.currentStart),
       to: localDateStr(view.currentEnd),
     });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useRef } from "preact/hooks";
 import { listPantryItems, updatePantryItem, markItemsOut, deletePantryItem, type PantryItem } from "../api.ts";
 import { replaceUrl, type Filter } from "../hooks/useUrlState.ts";
 
@@ -34,14 +34,18 @@ interface Props {
   onAuthError: (err: unknown) => void;
   initialFilter?: Filter;
   initialSearch?: string;
+  initialCategory?: string;
 }
 
-export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
+export function Pantry({ onAuthError, initialFilter, initialSearch, initialCategory }: Props) {
   const pageSize = usePageSize();
   const [items, setItems] = useState<PantryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>(initialFilter ?? "all");
   const [search, setSearch] = useState(initialSearch ?? "");
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(
+    initialCategory ? new Set(initialCategory.split(",").filter(Boolean)) : new Set()
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -49,6 +53,19 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   const [addingNew, setAddingNew] = useState(false);
   const [newItem, setNewItem] = useState<EditState>({ name: "", category: "", quantity: "", unit: "", keep_in_stock: false });
   const [page, setPage] = useState(1);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const categoryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!categoryOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) {
+        setCategoryOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [categoryOpen]);
 
   async function load() {
     setLoading(true);
@@ -71,9 +88,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   useEffect(() => { void load(); }, [filter]);
 
   useEffect(() => {
-    replaceUrl({ tab: "pantry", filter, search, from: undefined, to: undefined });
+    replaceUrl({ tab: "pantry", filter, search, category: categoryFilter.size ? [...categoryFilter].join(",") : undefined, from: undefined, to: undefined });
     setPage(1);
-  }, [filter, search]);
+  }, [filter, search, categoryFilter]);
 
   function startEdit(item: PantryItem) {
     setEditingId(item.id);
@@ -200,8 +217,9 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
   }
 
   const visible = items.filter(item => {
-    if (!search) return true;
-    return item.name.toLowerCase().includes(search.toLowerCase());
+    if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (categoryFilter.size && !categoryFilter.has(item.category ?? "")) return false;
+    return true;
   });
 
   const totalPages = Math.max(1, Math.ceil(visible.length / pageSize));
@@ -238,6 +256,44 @@ export function Pantry({ onAuthError, initialFilter, initialSearch }: Props) {
             {f === "all" ? "All" : f === "in_stock" ? "In stock" : "Out of stock"}
           </button>
         ))}
+        {allCategories.length > 0 && (
+          <div class="category-filter" ref={categoryRef}>
+            <button
+              class={`filter-btn${categoryFilter.size > 0 ? " active" : ""}`}
+              onClick={() => setCategoryOpen(o => !o)}
+            >
+              {categoryFilter.size === 0
+                ? "Categories ▾"
+                : `Categories (${categoryFilter.size}) ▾`}
+            </button>
+            {categoryOpen && (
+              <div class="category-popover">
+                {allCategories.map(c => (
+                  <label key={c} class="category-option">
+                    <input
+                      type="checkbox"
+                      checked={categoryFilter.has(c)}
+                      onChange={() => {
+                        setCategoryFilter(prev => {
+                          const next = new Set(prev);
+                          if (next.has(c)) next.delete(c);
+                          else next.add(c);
+                          return next;
+                        });
+                      }}
+                    />
+                    {c}
+                  </label>
+                ))}
+                {categoryFilter.size > 0 && (
+                  <button class="category-clear" onClick={() => setCategoryFilter(new Set())}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <button class="add-item-btn" onClick={() => setAddingNew(true)}>+ Add item</button>
       </div>
 

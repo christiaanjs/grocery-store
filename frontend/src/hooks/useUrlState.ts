@@ -5,6 +5,7 @@ export interface UrlState {
   tab: Tab;
   filter: Filter;
   search: string;
+  category: string | undefined;
   from: string | undefined;
   to: string | undefined;
 }
@@ -25,6 +26,7 @@ export function parseUrl(): UrlState {
         : "meals",
     filter: (params.get("filter") ?? "all") as Filter,
     search: params.get("search") ?? "",
+    category: params.get("category") ?? undefined,
     from: params.get("from") ?? undefined,
     to: params.get("to") ?? undefined,
   };
@@ -44,6 +46,7 @@ function buildUrl(state: UrlState): string {
   const params = new URLSearchParams();
   if (state.filter !== "all") params.set("filter", state.filter);
   if (state.search) params.set("search", state.search);
+  if (state.category) params.set("category", state.category);
   if (state.tab === "meals") {
     if (state.from) params.set("from", state.from);
     if (state.to) params.set("to", state.to);
