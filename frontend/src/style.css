@@ -459,6 +459,16 @@ button {
   border: 1px solid #fca5a5;
 }
 
+/* ── Meal plan → food diary quick-log ───────────────────────────────────────────────────────── */
+
+.meal-log-section {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
 /* ── Star rating ────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 .feedback-section {
@@ -1059,6 +1069,217 @@ button {
   background: #fef9c3;
   color: #854d0e;
   border: 1px solid #fef08a;
+}
+
+/* ── Nutrition view ──────────────────────────────────────────────────────────────────────────── */
+
+.nutrition-view {
+  max-width: 720px;
+}
+
+.nutrition-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.nutrition-totals-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.nutrition-total-stat {
+  flex: 1;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.nutrition-total-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #111;
+}
+
+.nutrition-total-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+}
+
+.nutrition-totals-bar--secondary {
+  margin-bottom: 1.25rem;
+}
+
+.nutrition-total-stat--small {
+  padding: 0.5rem 0.75rem;
+}
+
+.nutrition-total-stat--small .nutrition-total-value {
+  font-size: 1rem;
+}
+
+.nutrition-add-form {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.nutrition-form-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.nutrition-form-row input {
+  flex: 1;
+  min-width: 100px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+.nutrition-manual-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.nutrition-form-hint {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.nutrition-form-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.nutrition-inline-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+  min-width: 140px;
+}
+
+.nutrition-inline-label input {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: #1a1a1a;
+  text-transform: none;
+}
+
+.nutrition-relog-result {
+  font-size: 0.85rem;
+  color: #16a34a;
+  margin: 0;
+}
+
+.nutrition-form-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nutrition-empty {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
+.nutrition-group {
+  margin-bottom: 1.25rem;
+}
+
+.nutrition-group-title {
+  font-size: 0.8rem;
+  text-transform: capitalize;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+
+.nutrition-entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  overflow: hidden;
+}
+
+.nutrition-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.nutrition-entry:last-child {
+  border-bottom: none;
+}
+
+.nutrition-entry-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nutrition-entry-name {
+  font-size: 0.9rem;
+  color: #1a1a1a;
+}
+
+.nutrition-entry-meta {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.nutrition-entry-macros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.nutrition-entry-delete {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
 }
 
 /* ── Misc ─────────────────────────────────────────────────────────────────────────────────────── */

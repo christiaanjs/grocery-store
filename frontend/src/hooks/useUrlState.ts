@@ -1,5 +1,5 @@
 export type Filter = "all" | "in_stock" | "out_of_stock";
-export type Tab = "pantry" | "meals" | "grocery" | "history" | "integrations";
+export type Tab = "pantry" | "meals" | "grocery" | "history" | "nutrition" | "integrations";
 
 export interface UrlState {
   tab: Tab;
@@ -21,6 +21,8 @@ export function parseUrl(): UrlState {
         ? "grocery"
         : path === "/history"
         ? "history"
+        : path === "/nutrition"
+        ? "nutrition"
         : path === "/integrations"
         ? "integrations"
         : "meals",
@@ -40,6 +42,8 @@ function buildUrl(state: UrlState): string {
       ? "/grocery"
       : state.tab === "history"
       ? "/history"
+      : state.tab === "nutrition"
+      ? "/nutrition"
       : state.tab === "integrations"
       ? "/integrations"
       : "/pantry";

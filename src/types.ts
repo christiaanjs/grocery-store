@@ -1,4 +1,13 @@
-export type { User, Household, PantryItem, MealIngredient, MealEntryData } from "../types/shared.ts";
+export type {
+  User,
+  Household,
+  PantryItem,
+  MealIngredient,
+  MealEntryData,
+  IngredientMacrosData,
+  FoodLogEntryData,
+  NutritionTotals,
+} from "../types/shared.ts";
 
 // Maps directly to the meal_entries D1 row — ingredients/steps are raw JSON strings.
 export interface MealEntry {
@@ -47,6 +56,40 @@ export interface PreferenceHistory {
   old_value: string | null;
   new_value: string | null;
   changed_at: number;
+}
+
+export interface IngredientMacros {
+  id: string;
+  household_id: string;
+  name: string;
+  serving_size: number;
+  serving_unit: string;
+  calories: number;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  fiber_g: number | null;
+  saturated_fat_g: number | null;
+  sodium_mg: number | null;
+  updated_at: number;
+}
+
+export interface FoodLogEntry {
+  id: string;
+  household_id: string;
+  date: string;
+  meal_category: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  calories: number;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  fiber_g: number | null;
+  saturated_fat_g: number | null;
+  sodium_mg: number | null;
+  created_at: number;
 }
 
 export interface MealFeedback {

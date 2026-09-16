@@ -7,7 +7,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventInput, EventDropArg } from "@fullcalendar/core";
-import { getMealPlan, setMeals, deleteMeals, getMealFeedback, setMealFeedback, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
+import { getMealPlan, setMeals, deleteMeals, getMealFeedback, setMealFeedback, logMealToFoodLog, type MealEntryData, type MealIngredient, type MealFeedback } from "../api.ts";
 import { replaceUrl, inferInitialView, localDateStr } from "../hooks/useUrlState.ts";
 
 interface Props {
@@ -201,6 +201,28 @@ function MealModal({ date, existing, onSave, onDelete, onClose, onAuthError }: M
   const [fbNotes, setFbNotes] = useState("");
   const [fbTags, setFbTags] = useState("");
 
+  const [logStatus, setLogStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [logMessage, setLogMessage] = useState<string | null>(null);
+
+  async function handleLogToFoodDiary() {
+    setLogStatus("loading");
+    setLogMessage(null);
+    try {
+      const result = await logMealToFoodLog(date);
+      const logged = result.entries[0];
+      let msg = logged ? `Logged — ${Math.round(logged.calories)} cal` : "Logged";
+      if (result.missing_macros_for && result.missing_macros_for.length > 0) {
+        msg += ` (no stored macros for: ${result.missing_macros_for.join(", ")})`;
+      }
+      setLogMessage(msg);
+      setLogStatus("success");
+    } catch (err) {
+      onAuthError(err);
+      setLogMessage(err instanceof Error ? err.message : "Failed to log meal");
+      setLogStatus("error");
+    }
+  }
+
   useEffect(() => {
     if (!existing) return;
     getMealFeedback(date)
@@ -296,6 +318,22 @@ function MealModal({ date, existing, onSave, onDelete, onClose, onAuthError }: M
           onInput={e => setSteps((e.target as HTMLTextAreaElement).value)}
           placeholder={"Cook pasta al dente\nFry guanciale until crispy\n…"}
         />
+
+        {existing && !!existing.ingredients?.length && (
+          <div class="meal-log-section">
+            <button
+              type="button"
+              class="btn-secondary"
+              onClick={() => void handleLogToFoodDiary()}
+              disabled={logStatus === "loading"}
+            >
+              {logStatus === "loading" ? "Logging…" : `Log to food diary (${date})`}
+            </button>
+            {logMessage && (
+              <p class={logStatus === "error" ? "inline-error" : "nutrition-relog-result"}>{logMessage}</p>
+            )}
+          </div>
+        )}
 
         {existing && (
           <details class="feedback-section" open={!!feedback}>
