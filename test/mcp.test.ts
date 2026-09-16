@@ -113,6 +113,12 @@ describe("tools/list", () => {
       "meal_search",
       "meal_plan_suggest",
       "grocery_list",
+      "ingredient_macros_set",
+      "ingredient_macros_list",
+      "ingredient_macros_delete",
+      "food_log_add",
+      "food_log_get",
+      "food_log_delete",
     ]);
   });
 
@@ -691,5 +697,142 @@ describe("grocery_list", () => {
     });
     const items = JSON.parse(text) as Array<{ name: string }>;
     expect(items.every(i => i.name !== "olive oil")).toBe(true);
+  });
+});
+
+// ── Nutrition / calorie tracking ─────────────────────────────────────────
+
+describe("nutrition", () => {
+  const DAY = "2026-08-10";
+
+  it("lists empty macros on first call", async () => {
+    const text = await resultText(100, "ingredient_macros_list");
+    expect(JSON.parse(text)).toEqual([]);
+  });
+
+  it("stores macros for an ingredient", async () => {
+    const text = await resultText(101, "ingredient_macros_set", {
+      name: "chicken breast",
+      serving_size: 100,
+      serving_unit: "g",
+      calories: 165,
+      protein_g: 31,
+      carbs_g: 0,
+      fat_g: 3.6,
+    });
+    const macros = JSON.parse(text) as Record<string, unknown>;
+    expect(macros["name"]).toBe("chicken breast");
+    expect(macros["calories"]).toBe(165);
+    expect(macros["protein_g"]).toBe(31);
+  });
+
+  it("defaults serving_size/unit and returns them on list", async () => {
+    await resultText(102, "ingredient_macros_set", { name: "banana", calories: 89 });
+    const text = await resultText(103, "ingredient_macros_list");
+    const macros = JSON.parse(text) as Array<Record<string, unknown>>;
+    const banana = macros.find((m) => m["name"] === "banana");
+    expect(banana?.["serving_size"]).toBe(100);
+    expect(banana?.["serving_unit"]).toBe("g");
+    expect(banana?.["protein_g"]).toBeNull();
+  });
+
+  it("returns error when ingredient_macros_set called without calories", async () => {
+    const res = await call(104, "ingredient_macros_set", { name: "rice" });
+    expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("rejects a food_log_add entry with no calories and no matching macros", async () => {
+    const res = await call(105, "food_log_add", {
+      date: DAY,
+      entries: [{ name: "mystery item", meal_category: "lunch" }],
+    });
+    expect(res.result?.["isError"]).toBe(true);
+    const content = res.result?.["content"] as Array<{ type: string; text: string }>;
+    expect(content?.[0]?.text).toContain("mystery item");
+  });
+
+  it("logs an entry by scaling stored macros with quantity", async () => {
+    const text = await resultText(106, "food_log_add", {
+      date: DAY,
+      entries: [{ name: "chicken breast", meal_category: "dinner", quantity: 200, unit: "g" }],
+    });
+    const data = JSON.parse(text) as { date: string; entries: Array<Record<string, unknown>>; totals: Record<string, number> };
+    expect(data.date).toBe(DAY);
+    expect(data.entries).toHaveLength(1);
+    expect(data.entries[0]?.["calories"]).toBe(330); // 165 * 2
+    expect(data.entries[0]?.["protein_g"]).toBe(62); // 31 * 2
+    expect(data.totals.calories).toBe(330);
+  });
+
+  it("logs a whole meal with explicit calories, no macros lookup needed", async () => {
+    const text = await resultText(107, "food_log_add", {
+      date: DAY,
+      entries: [{ name: "veggie stir fry", meal_category: "lunch", calories: 420, protein_g: 15, carbs_g: 50, fat_g: 12 }],
+    });
+    const data = JSON.parse(text) as { entries: Array<Record<string, unknown>> };
+    expect(data.entries[0]?.["name"]).toBe("veggie stir fry");
+    expect(data.entries[0]?.["calories"]).toBe(420);
+  });
+
+  it("defaults meal_category to 'other' when omitted", async () => {
+    const text = await resultText(108, "food_log_add", {
+      date: DAY,
+      entries: [{ name: "banana", quantity: 100 }],
+    });
+    const data = JSON.parse(text) as { entries: Array<Record<string, unknown>> };
+    expect(data.entries[0]?.["meal_category"]).toBe("other");
+  });
+
+  it("gets the day's log with combined totals", async () => {
+    const text = await resultText(109, "food_log_get", { date: DAY });
+    const data = JSON.parse(text) as { date: string; entries: unknown[]; totals: Record<string, number> };
+    expect(data.date).toBe(DAY);
+    expect(data.entries).toHaveLength(3);
+    expect(data.totals.calories).toBe(330 + 420 + 89);
+  });
+
+  it("returns zero totals for a day with nothing logged", async () => {
+    const text = await resultText(110, "food_log_get", { date: "2026-08-11" });
+    const data = JSON.parse(text) as { entries: unknown[]; totals: Record<string, number> };
+    expect(data.entries).toEqual([]);
+    expect(data.totals).toEqual({ calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 });
+  });
+
+  it("gets a range as a per-day array", async () => {
+    const text = await resultText(111, "food_log_get", { date_from: "2026-08-09", date_to: "2026-08-11" });
+    const days = JSON.parse(text) as Array<{ date: string }>;
+    expect(days).toHaveLength(1);
+    expect(days[0]?.date).toBe(DAY);
+  });
+
+  it("deletes a single entry by id", async () => {
+    const listText = await resultText(112, "food_log_get", { date: DAY });
+    const { entries } = JSON.parse(listText) as { entries: Array<{ id: string; name: string }> };
+    const bananaId = entries.find((e) => e.name === "banana")!.id;
+    const text = await resultText(113, "food_log_delete", { ids: [bananaId] });
+    expect(JSON.parse(text)).toEqual({ deleted: 1 });
+
+    const after = await resultText(114, "food_log_get", { date: DAY });
+    const afterData = JSON.parse(after) as { entries: unknown[] };
+    expect(afterData.entries).toHaveLength(2);
+  });
+
+  it("deletes all entries for a date", async () => {
+    const text = await resultText(115, "food_log_delete", { dates: [DAY] });
+    expect(JSON.parse(text)).toEqual({ deleted: 2 });
+    const after = await resultText(116, "food_log_get", { date: DAY });
+    expect((JSON.parse(after) as { entries: unknown[] }).entries).toEqual([]);
+  });
+
+  it("returns error when food_log_delete called without ids or dates", async () => {
+    const res = await call(117, "food_log_delete", {});
+    expect(res.result?.["isError"]).toBe(true);
+  });
+
+  it("deletes an ingredient macro profile", async () => {
+    const text = await resultText(118, "ingredient_macros_delete", { name: "banana" });
+    expect(JSON.parse(text)).toEqual({ deleted: true });
+    const list = await resultText(119, "ingredient_macros_list");
+    expect((JSON.parse(list) as Array<{ name: string }>).some((m) => m.name === "banana")).toBe(false);
   });
 });

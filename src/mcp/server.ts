@@ -3,10 +3,11 @@ import { getOrCreateHousehold } from "../db/queries.ts";
 import { FEEDBACK_TOOLS, handleFeedbackTool } from "./tools/feedback.ts";
 import { GROCERY_TOOLS, handleGroceryTool } from "./tools/grocery.ts";
 import { MEAL_TOOLS, handleMealTool } from "./tools/meals.ts";
+import { NUTRITION_TOOLS, handleNutritionTool } from "./tools/nutrition.ts";
 import { PANTRY_TOOLS, handlePantryTool } from "./tools/pantry.ts";
 import { PREFERENCE_TOOLS, handlePreferenceTool } from "./tools/preferences.ts";
 
-const ALL_TOOLS = [...PANTRY_TOOLS, ...MEAL_TOOLS, ...PREFERENCE_TOOLS, ...FEEDBACK_TOOLS, ...GROCERY_TOOLS];
+const ALL_TOOLS = [...PANTRY_TOOLS, ...MEAL_TOOLS, ...PREFERENCE_TOOLS, ...FEEDBACK_TOOLS, ...GROCERY_TOOLS, ...NUTRITION_TOOLS];
 const PROTOCOL_VERSION = "2024-11-05";
 
 export async function handleMcp(request: Request, env: Env, userId: string): Promise<Response> {
@@ -81,8 +82,9 @@ async function dispatch(req: McpRequest, env: Env, userId: string): Promise<McpR
       const isPreferenceTool = PREFERENCE_TOOLS.some((t) => t.name === params.name);
       const isFeedbackTool = FEEDBACK_TOOLS.some((t) => t.name === params.name);
       const isGroceryTool = GROCERY_TOOLS.some((t) => t.name === params.name);
+      const isNutritionTool = NUTRITION_TOOLS.some((t) => t.name === params.name);
 
-      if (!isPantryTool && !isMealTool && !isPreferenceTool && !isFeedbackTool && !isGroceryTool) {
+      if (!isPantryTool && !isMealTool && !isPreferenceTool && !isFeedbackTool && !isGroceryTool && !isNutritionTool) {
         return { jsonrpc: "2.0", id, error: { code: -32601, message: `Unknown tool: ${params.name}` } };
       }
 
@@ -95,8 +97,10 @@ async function dispatch(req: McpRequest, env: Env, userId: string): Promise<McpR
         toolResult = await handlePreferenceTool(params.name, args, env.DB, householdId);
       } else if (isFeedbackTool) {
         toolResult = await handleFeedbackTool(params.name, args, env, householdId);
-      } else {
+      } else if (isGroceryTool) {
         toolResult = await handleGroceryTool(params.name, args, env.DB, householdId);
+      } else {
+        toolResult = await handleNutritionTool(params.name, args, env.DB, householdId);
       }
 
       return { jsonrpc: "2.0", id, result: toolResult };

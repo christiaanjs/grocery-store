@@ -1,4 +1,4 @@
-import type { MealEntry, MealFeedback, MealIngredient, PantryItem, Preference, PreferenceHistory, User } from "../types.ts";
+import type { FoodLogEntry, IngredientMacros, MealEntry, MealFeedback, MealIngredient, PantryItem, Preference, PreferenceHistory, User } from "../types.ts";
 
 // ── Users / households ───────────────────────────────────────────────────
 
@@ -660,4 +660,178 @@ export async function searchMeals(
   }
 
   return results;
+}
+
+// ── Ingredient macros ────────────────────────────────────────────────────
+
+export async function listIngredientMacros(
+  db: D1Database,
+  householdId: string,
+): Promise<IngredientMacros[]> {
+  const result = await db
+    .prepare("SELECT * FROM ingredient_macros WHERE household_id = ? ORDER BY name")
+    .bind(householdId)
+    .all<IngredientMacros>();
+  return result.results;
+}
+
+export async function getIngredientMacrosByName(
+  db: D1Database,
+  householdId: string,
+  name: string,
+): Promise<IngredientMacros | null> {
+  return db
+    .prepare("SELECT * FROM ingredient_macros WHERE household_id = ? AND lower(name) = lower(?)")
+    .bind(householdId, name)
+    .first<IngredientMacros>();
+}
+
+export async function upsertIngredientMacros(
+  db: D1Database,
+  householdId: string,
+  macros: {
+    name: string;
+    servingSize?: number;
+    servingUnit?: string;
+    calories: number;
+    proteinG?: number | null;
+    carbsG?: number | null;
+    fatG?: number | null;
+  },
+): Promise<IngredientMacros> {
+  const now = Date.now();
+  const existing = await getIngredientMacrosByName(db, householdId, macros.name);
+  const servingSize = macros.servingSize ?? existing?.serving_size ?? 100;
+  const servingUnit = macros.servingUnit ?? existing?.serving_unit ?? "g";
+  const proteinG = macros.proteinG !== undefined ? macros.proteinG : existing?.protein_g ?? null;
+  const carbsG = macros.carbsG !== undefined ? macros.carbsG : existing?.carbs_g ?? null;
+  const fatG = macros.fatG !== undefined ? macros.fatG : existing?.fat_g ?? null;
+
+  if (existing) {
+    await db
+      .prepare(
+        "UPDATE ingredient_macros SET serving_size = ?, serving_unit = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, updated_at = ? WHERE id = ?",
+      )
+      .bind(servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, now, existing.id)
+      .run();
+    return { ...existing, serving_size: servingSize, serving_unit: servingUnit, calories: macros.calories, protein_g: proteinG, carbs_g: carbsG, fat_g: fatG, updated_at: now };
+  }
+
+  const id = crypto.randomUUID();
+  await db
+    .prepare(
+      "INSERT INTO ingredient_macros (id, household_id, name, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(id, householdId, macros.name, servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, now)
+    .run();
+
+  return {
+    id,
+    household_id: householdId,
+    name: macros.name,
+    serving_size: servingSize,
+    serving_unit: servingUnit,
+    calories: macros.calories,
+    protein_g: proteinG,
+    carbs_g: carbsG,
+    fat_g: fatG,
+    updated_at: now,
+  };
+}
+
+export async function deleteIngredientMacros(
+  db: D1Database,
+  householdId: string,
+  name: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare("DELETE FROM ingredient_macros WHERE household_id = ? AND lower(name) = lower(?)")
+    .bind(householdId, name)
+    .run();
+  return result.meta.changes > 0;
+}
+
+// ── Food log ─────────────────────────────────────────────────────────────
+
+export async function addFoodLogEntries(
+  db: D1Database,
+  householdId: string,
+  entries: Array<{
+    date: string;
+    mealCategory: string;
+    name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    calories: number;
+    proteinG?: number | null;
+    carbsG?: number | null;
+    fatG?: number | null;
+  }>,
+): Promise<FoodLogEntry[]> {
+  const now = Date.now();
+  const rows: FoodLogEntry[] = entries.map((e) => ({
+    id: crypto.randomUUID(),
+    household_id: householdId,
+    date: e.date,
+    meal_category: e.mealCategory,
+    name: e.name,
+    quantity: e.quantity ?? null,
+    unit: e.unit ?? null,
+    calories: e.calories,
+    protein_g: e.proteinG ?? null,
+    carbs_g: e.carbsG ?? null,
+    fat_g: e.fatG ?? null,
+    created_at: now,
+  }));
+
+  const statements = rows.map((r) =>
+    db
+      .prepare(
+        "INSERT INTO food_log_entries (id, household_id, date, meal_category, name, quantity, unit, calories, protein_g, carbs_g, fat_g, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(r.id, r.household_id, r.date, r.meal_category, r.name, r.quantity, r.unit, r.calories, r.protein_g, r.carbs_g, r.fat_g, r.created_at),
+  );
+  if (statements.length > 0) await db.batch(statements);
+
+  return rows;
+}
+
+export async function getFoodLogEntries(
+  db: D1Database,
+  householdId: string,
+  dateFrom: string,
+  dateTo: string,
+): Promise<FoodLogEntry[]> {
+  const result = await db
+    .prepare(
+      "SELECT * FROM food_log_entries WHERE household_id = ? AND date >= ? AND date <= ? ORDER BY date, created_at",
+    )
+    .bind(householdId, dateFrom, dateTo)
+    .all<FoodLogEntry>();
+  return result.results;
+}
+
+export async function deleteFoodLogEntries(
+  db: D1Database,
+  householdId: string,
+  opts: { ids?: string[]; dates?: string[] },
+): Promise<number> {
+  let changes = 0;
+  if (opts.ids && opts.ids.length > 0) {
+    const placeholders = opts.ids.map(() => "?").join(", ");
+    const result = await db
+      .prepare(`DELETE FROM food_log_entries WHERE household_id = ? AND id IN (${placeholders})`)
+      .bind(householdId, ...opts.ids)
+      .run();
+    changes += result.meta.changes;
+  }
+  if (opts.dates && opts.dates.length > 0) {
+    const placeholders = opts.dates.map(() => "?").join(", ");
+    const result = await db
+      .prepare(`DELETE FROM food_log_entries WHERE household_id = ? AND date IN (${placeholders})`)
+      .bind(householdId, ...opts.dates)
+      .run();
+    changes += result.meta.changes;
+  }
+  return changes;
 }

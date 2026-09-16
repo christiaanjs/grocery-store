@@ -1,6 +1,6 @@
 import { getValidToken, clearTokens } from "./auth.ts";
-export type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
-import type { PantryItem, MealIngredient, MealEntryData, GroceryItem } from "../../types/shared.ts";
+export type { PantryItem, MealIngredient, MealEntryData, GroceryItem, IngredientMacrosData, FoodLogEntryData, NutritionTotals } from "../../types/shared.ts";
+import type { PantryItem, MealIngredient, MealEntryData, GroceryItem, IngredientMacrosData, FoodLogEntryData, NutritionTotals } from "../../types/shared.ts";
 
 const WORKER_BASE = import.meta.env.VITE_WORKER_URL ?? "";
 
@@ -220,6 +220,53 @@ export const submitManualMasterToken = (email: string, masterToken: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, master_token: masterToken }),
   });
+
+// ── Calorie / macro tracking ──────────────────────────────────────────────
+
+export const listIngredientMacros = () =>
+  mcpCall<IngredientMacrosData[]>("ingredient_macros_list", {});
+
+export const setIngredientMacros = (macros: {
+  name: string;
+  serving_size?: number;
+  serving_unit?: string;
+  calories: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+}) => mcpCall<IngredientMacrosData>("ingredient_macros_set", macros as Record<string, unknown>);
+
+export const deleteIngredientMacros = (name: string) =>
+  mcpCall<{ deleted: boolean }>("ingredient_macros_delete", { name });
+
+export interface FoodLogDay {
+  date: string;
+  entries: FoodLogEntryData[];
+  totals: NutritionTotals;
+}
+
+export interface FoodLogEntryInput {
+  name: string;
+  meal_category?: string;
+  quantity?: number;
+  unit?: string;
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+}
+
+export const addFoodLogEntries = (date: string, entries: FoodLogEntryInput[]) =>
+  mcpCall<FoodLogDay>("food_log_add", { date, entries: entries as unknown as Record<string, unknown>[] });
+
+export const getFoodLogDay = (date: string) =>
+  mcpCall<FoodLogDay>("food_log_get", { date });
+
+export const getFoodLogRange = (dateFrom: string, dateTo: string) =>
+  mcpCall<FoodLogDay[]>("food_log_get", { date_from: dateFrom, date_to: dateTo });
+
+export const deleteFoodLogEntries = (opts: { ids?: string[]; dates?: string[] }) =>
+  mcpCall<{ deleted: number }>("food_log_delete", opts as Record<string, unknown>);
 
 export const exportGroceryListToKeep = (params: {
   date_from: string;

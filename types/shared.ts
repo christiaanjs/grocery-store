@@ -43,3 +43,33 @@ export interface GroceryItem {
   unit?: string;
   category: string | null;
 }
+
+export interface IngredientMacrosData {
+  name: string;
+  serving_size: number;
+  serving_unit: string;
+  calories: number;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+}
+
+export interface FoodLogEntryData {
+  id: string;
+  date: string;
+  meal_category: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  calories: number;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+}
+
+export interface NutritionTotals {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}

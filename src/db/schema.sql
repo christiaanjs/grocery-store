@@ -68,6 +68,34 @@ CREATE TABLE meal_feedback (
   -- uniqueness enforced by idx_meal_feedback_unique (expression index with ifnull)
 );
 
+CREATE TABLE ingredient_macros (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  name TEXT NOT NULL,
+  serving_size REAL NOT NULL DEFAULT 100,
+  serving_unit TEXT NOT NULL DEFAULT 'g',
+  calories REAL NOT NULL,
+  protein_g REAL,
+  carbs_g REAL,
+  fat_g REAL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE food_log_entries (
+  id TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id),
+  date TEXT NOT NULL,           -- ISO date the food was logged against
+  meal_category TEXT NOT NULL DEFAULT 'other',  -- freeform: 'breakfast', 'lunch', 'dinner', 'snack', or custom
+  name TEXT NOT NULL,
+  quantity REAL,
+  unit TEXT,
+  calories REAL NOT NULL,
+  protein_g REAL,
+  carbs_g REAL,
+  fat_g REAL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE oauth_identities (
   provider    TEXT NOT NULL,  -- 'github', 'google', etc.
   provider_id TEXT NOT NULL,  -- provider's user ID (string)
@@ -87,3 +115,6 @@ CREATE INDEX idx_preference_history_household ON preference_history(household_id
 CREATE INDEX idx_meal_feedback_household ON meal_feedback(household_id);
 CREATE INDEX idx_meal_feedback_date ON meal_feedback(household_id, date);
 CREATE UNIQUE INDEX idx_meal_feedback_unique ON meal_feedback(household_id, date, ifnull(meal_snapshot, ''));
+
+CREATE UNIQUE INDEX idx_ingredient_macros_unique_name ON ingredient_macros(household_id, LOWER(name));
+CREATE INDEX idx_food_log_household_date ON food_log_entries(household_id, date);
