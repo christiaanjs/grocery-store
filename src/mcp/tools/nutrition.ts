@@ -1,10 +1,11 @@
-import type { FoodLogEntry, FoodLogEntryData, IngredientMacrosData, NutritionTotals, ToolDefinition, ToolResult } from "../../types.ts";
+import type { FoodLogEntry, FoodLogEntryData, IngredientMacros, IngredientMacrosData, MealIngredient, NutritionTotals, ToolDefinition, ToolResult } from "../../types.ts";
 import {
   addFoodLogEntries,
   deleteFoodLogEntries,
   deleteIngredientMacros,
   getFoodLogEntries,
   getIngredientMacrosByName,
+  getMealEntries,
   listIngredientMacros,
   upsertIngredientMacros,
 } from "../../db/queries.ts";
@@ -54,11 +55,29 @@ function toEntryData(row: FoodLogEntry): FoodLogEntryData {
     protein_g: row.protein_g,
     carbs_g: row.carbs_g,
     fat_g: row.fat_g,
+    fiber_g: row.fiber_g,
+    saturated_fat_g: row.saturated_fat_g,
+    sodium_mg: row.sodium_mg,
+  };
+}
+
+function toMacrosData(row: IngredientMacros): IngredientMacrosData {
+  return {
+    name: row.name,
+    serving_size: row.serving_size,
+    serving_unit: row.serving_unit,
+    calories: row.calories,
+    protein_g: row.protein_g,
+    carbs_g: row.carbs_g,
+    fat_g: row.fat_g,
+    fiber_g: row.fiber_g,
+    saturated_fat_g: row.saturated_fat_g,
+    sodium_mg: row.sodium_mg,
   };
 }
 
 function zeroTotals(): NutritionTotals {
-  return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0, saturated_fat_g: 0, sodium_mg: 0 };
 }
 
 function sumTotals(entries: FoodLogEntryData[]): NutritionTotals {
@@ -67,6 +86,9 @@ function sumTotals(entries: FoodLogEntryData[]): NutritionTotals {
     acc.protein_g += e.protein_g ?? 0;
     acc.carbs_g += e.carbs_g ?? 0;
     acc.fat_g += e.fat_g ?? 0;
+    acc.fiber_g += e.fiber_g ?? 0;
+    acc.saturated_fat_g += e.saturated_fat_g ?? 0;
+    acc.sodium_mg += e.sodium_mg ?? 0;
     return acc;
   }, zeroTotals());
 }
@@ -80,6 +102,9 @@ interface ParsedFoodLogEntry {
   proteinG: number | null;
   carbsG: number | null;
   fatG: number | null;
+  fiberG: number | null;
+  saturatedFatG: number | null;
+  sodiumMg: number | null;
 }
 
 async function resolveEntry(
@@ -109,6 +134,9 @@ async function resolveEntry(
         proteinG: typeof raw["protein_g"] === "number" ? raw["protein_g"] : null,
         carbsG: typeof raw["carbs_g"] === "number" ? raw["carbs_g"] : null,
         fatG: typeof raw["fat_g"] === "number" ? raw["fat_g"] : null,
+        fiberG: typeof raw["fiber_g"] === "number" ? raw["fiber_g"] : null,
+        saturatedFatG: typeof raw["saturated_fat_g"] === "number" ? raw["saturated_fat_g"] : null,
+        sodiumMg: typeof raw["sodium_mg"] === "number" ? raw["sodium_mg"] : null,
       },
     };
   }
@@ -131,9 +159,60 @@ async function resolveEntry(
       proteinG: macros.protein_g !== null ? macros.protein_g * ratio : null,
       carbsG: macros.carbs_g !== null ? macros.carbs_g * ratio : null,
       fatG: macros.fat_g !== null ? macros.fat_g * ratio : null,
+      fiberG: macros.fiber_g !== null ? macros.fiber_g * ratio : null,
+      saturatedFatG: macros.saturated_fat_g !== null ? macros.saturated_fat_g * ratio : null,
+      sodiumMg: macros.sodium_mg !== null ? macros.sodium_mg * ratio : null,
     },
   };
 }
+
+// Aggregates a saved meal's ingredient list into a single set of totals using stored
+// ingredient_macros profiles, scaled by each ingredient's quantity. Ingredients with no
+// stored macros are skipped and reported back so the caller can flag them as missing.
+async function computeMealNutrition(
+  db: D1Database,
+  householdId: string,
+  ingredients: MealIngredient[],
+): Promise<{ totals: NutritionTotals; found: Set<keyof NutritionTotals>; missing: string[] }> {
+  const totals = zeroTotals();
+  const found = new Set<keyof NutritionTotals>();
+  const missing: string[] = [];
+
+  for (const ing of ingredients) {
+    const macros = await getIngredientMacrosByName(db, householdId, ing.name);
+    if (!macros) {
+      missing.push(ing.name);
+      continue;
+    }
+    const ratio = ing.quantity !== undefined ? ing.quantity / macros.serving_size : 1;
+    totals.calories += macros.calories * ratio;
+    found.add("calories");
+    for (const [field, value] of [
+      ["protein_g", macros.protein_g],
+      ["carbs_g", macros.carbs_g],
+      ["fat_g", macros.fat_g],
+      ["fiber_g", macros.fiber_g],
+      ["saturated_fat_g", macros.saturated_fat_g],
+      ["sodium_mg", macros.sodium_mg],
+    ] as const) {
+      if (value !== null) {
+        totals[field] += value * ratio;
+        found.add(field);
+      }
+    }
+  }
+
+  return { totals, found, missing };
+}
+
+const MACRO_FIELD_SCHEMA = {
+  protein_g: { type: "number", description: "Protein in grams." },
+  carbs_g: { type: "number", description: "Carbohydrates in grams." },
+  fat_g: { type: "number", description: "Total fat in grams." },
+  fiber_g: { type: "number", description: "Dietary fiber in grams." },
+  saturated_fat_g: { type: "number", description: "Saturated fat in grams." },
+  sodium_mg: { type: "number", description: "Sodium in milligrams." },
+};
 
 export const NUTRITION_TOOLS: ToolDefinition[] = [
   {
@@ -147,9 +226,7 @@ export const NUTRITION_TOOLS: ToolDefinition[] = [
         serving_size: { type: "number", description: "Serving size the macros below refer to. Defaults to 100." },
         serving_unit: { type: "string", description: "Unit for serving_size, e.g. 'g', 'ml', 'count'. Defaults to 'g'." },
         calories: { type: "number", description: "Calories per serving_size/serving_unit." },
-        protein_g: { type: "number", description: "Protein in grams per serving." },
-        carbs_g: { type: "number", description: "Carbohydrates in grams per serving." },
-        fat_g: { type: "number", description: "Fat in grams per serving." },
+        ...MACRO_FIELD_SCHEMA,
       },
       required: ["name", "calories"],
     },
@@ -171,7 +248,7 @@ export const NUTRITION_TOOLS: ToolDefinition[] = [
   {
     name: "food_log_add",
     description:
-      "Log ingredients and/or meals eaten on a given day, grouped flexibly by meal_category (e.g. breakfast, lunch, dinner, snack, or any custom label). For each entry, either provide calories (and optionally protein_g/carbs_g/fat_g) directly for a whole meal, or omit calories and provide quantity to auto-calculate from a stored ingredient_macros profile matching the entry's name.",
+      "Log ingredients and/or meals eaten on a given day, grouped flexibly by meal_category (e.g. breakfast, lunch, dinner, snack, or any custom label). For each entry, either provide calories (and optionally protein_g/carbs_g/fat_g/fiber_g/saturated_fat_g/sodium_mg) directly for a whole meal, or omit calories and provide quantity to auto-calculate from a stored ingredient_macros profile matching the entry's name.",
     inputSchema: {
       type: "object",
       properties: {
@@ -187,9 +264,7 @@ export const NUTRITION_TOOLS: ToolDefinition[] = [
               quantity: { type: "number", description: "Amount eaten. Combined with a stored ingredient_macros profile to compute calories if calories is omitted." },
               unit: { type: "string", description: "Unit for quantity, e.g. 'g', 'count'." },
               calories: { type: "number", description: "Total calories for this entry. If omitted, looked up from ingredient_macros by name + quantity." },
-              protein_g: { type: "number", description: "Protein in grams (only used alongside explicit calories)." },
-              carbs_g: { type: "number", description: "Carbohydrates in grams (only used alongside explicit calories)." },
-              fat_g: { type: "number", description: "Fat in grams (only used alongside explicit calories)." },
+              ...MACRO_FIELD_SCHEMA,
             },
             required: ["name"],
           },
@@ -223,6 +298,20 @@ export const NUTRITION_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    name: "food_log_log_meal",
+    description:
+      "Re-log a meal that's already planned or saved in the meal plan by computing its calories/macros from that meal's ingredient list and stored ingredient_macros profiles — avoids retyping a recipe's nutrition by hand. Ingredients with no stored macro profile are skipped and reported back as missing rather than failing the whole entry.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "ISO date of the planned/saved meal to source ingredients from (e.g. '2026-05-07')." },
+        log_date: { type: "string", description: "ISO date to log the meal against. Defaults to the same date as `date`." },
+        meal_category: { type: "string", description: "e.g. 'breakfast', 'lunch', 'dinner', 'snack'. Defaults to 'dinner'." },
+      },
+      required: ["date"],
+    },
+  },
 ];
 
 export async function handleNutritionTool(
@@ -247,31 +336,16 @@ export async function handleNutritionTool(
         proteinG: typeof args["protein_g"] === "number" ? args["protein_g"] : undefined,
         carbsG: typeof args["carbs_g"] === "number" ? args["carbs_g"] : undefined,
         fatG: typeof args["fat_g"] === "number" ? args["fat_g"] : undefined,
+        fiberG: typeof args["fiber_g"] === "number" ? args["fiber_g"] : undefined,
+        saturatedFatG: typeof args["saturated_fat_g"] === "number" ? args["saturated_fat_g"] : undefined,
+        sodiumMg: typeof args["sodium_mg"] === "number" ? args["sodium_mg"] : undefined,
       });
-      const data: IngredientMacrosData = {
-        name: macros.name,
-        serving_size: macros.serving_size,
-        serving_unit: macros.serving_unit,
-        calories: macros.calories,
-        protein_g: macros.protein_g,
-        carbs_g: macros.carbs_g,
-        fat_g: macros.fat_g,
-      };
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify(toMacrosData(macros), null, 2) }] };
     }
 
     case "ingredient_macros_list": {
       const rows = await listIngredientMacros(db, householdId);
-      const data: IngredientMacrosData[] = rows.map((r) => ({
-        name: r.name,
-        serving_size: r.serving_size,
-        serving_unit: r.serving_unit,
-        calories: r.calories,
-        protein_g: r.protein_g,
-        carbs_g: r.carbs_g,
-        fat_g: r.fat_g,
-      }));
-      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify(rows.map(toMacrosData), null, 2) }] };
     }
 
     case "ingredient_macros_delete": {
@@ -316,6 +390,9 @@ export async function handleNutritionTool(
           proteinG: e.proteinG,
           carbsG: e.carbsG,
           fatG: e.fatG,
+          fiberG: e.fiberG,
+          saturatedFatG: e.saturatedFatG,
+          sodiumMg: e.sodiumMg,
         })),
       );
 
@@ -364,6 +441,62 @@ export async function handleNutritionTool(
 
       const deleted = await deleteFoodLogEntries(db, householdId, { ids, dates });
       return { content: [{ type: "text", text: JSON.stringify({ deleted }) }] };
+    }
+
+    case "food_log_log_meal": {
+      if (typeof args["date"] !== "string") {
+        return { content: [{ type: "text", text: "date is required" }], isError: true };
+      }
+      const meals = await getMealEntries(db, householdId, args["date"], args["date"]);
+      if (meals.length === 0) {
+        return { content: [{ type: "text", text: `No planned meal found for ${args["date"]}` }], isError: true };
+      }
+      const meal = meals[0]!;
+      const ingredients: MealIngredient[] = meal.ingredients ? JSON.parse(meal.ingredients) : [];
+      if (ingredients.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `"${meal.name}" on ${args["date"]} has no ingredients to compute calories from — log it manually with food_log_add instead`,
+          }],
+          isError: true,
+        };
+      }
+
+      const { totals, found, missing } = await computeMealNutrition(db, householdId, ingredients);
+      if (!found.has("calories")) {
+        return {
+          content: [{
+            type: "text",
+            text: `None of the ingredients in "${meal.name}" have stored macros — add them via ingredient_macros_set first, or log this meal manually with food_log_add`,
+          }],
+          isError: true,
+        };
+      }
+
+      const logDate = typeof args["log_date"] === "string" ? args["log_date"] : meal.date;
+      const mealCategory = typeof args["meal_category"] === "string" && args["meal_category"].trim() !== ""
+        ? args["meal_category"]
+        : "dinner";
+
+      const saved = await addFoodLogEntries(db, householdId, [{
+        date: logDate,
+        mealCategory,
+        name: meal.name,
+        calories: totals.calories,
+        proteinG: found.has("protein_g") ? totals.protein_g : null,
+        carbsG: found.has("carbs_g") ? totals.carbs_g : null,
+        fatG: found.has("fat_g") ? totals.fat_g : null,
+        fiberG: found.has("fiber_g") ? totals.fiber_g : null,
+        saturatedFatG: found.has("saturated_fat_g") ? totals.saturated_fat_g : null,
+        sodiumMg: found.has("sodium_mg") ? totals.sodium_mg : null,
+      }]);
+
+      const entries = saved.map(toEntryData);
+      const result: Record<string, unknown> = { date: logDate, entries, totals: sumTotals(entries) };
+      if (missing.length > 0) result["missing_macros_for"] = missing;
+
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }
 
     default:

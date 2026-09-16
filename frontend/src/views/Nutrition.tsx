@@ -6,6 +6,7 @@ import {
   listIngredientMacros,
   setIngredientMacros,
   deleteIngredientMacros,
+  logMealToFoodLog,
   type FoodLogEntryData,
   type IngredientMacrosData,
   type NutritionTotals,
@@ -25,7 +26,7 @@ function addDays(dateStr: string, days: number): string {
 }
 
 function zeroTotals(): NutritionTotals {
-  return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+  return { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0, saturated_fat_g: 0, sodium_mg: 0 };
 }
 
 interface EntryFormState {
@@ -37,6 +38,9 @@ interface EntryFormState {
   protein_g: string;
   carbs_g: string;
   fat_g: string;
+  fiber_g: string;
+  saturated_fat_g: string;
+  sodium_mg: string;
 }
 
 const EMPTY_ENTRY_FORM: EntryFormState = {
@@ -48,6 +52,35 @@ const EMPTY_ENTRY_FORM: EntryFormState = {
   protein_g: "",
   carbs_g: "",
   fat_g: "",
+  fiber_g: "",
+  saturated_fat_g: "",
+  sodium_mg: "",
+};
+
+interface MacroFormState {
+  name: string;
+  serving_size: string;
+  serving_unit: string;
+  calories: string;
+  protein_g: string;
+  carbs_g: string;
+  fat_g: string;
+  fiber_g: string;
+  saturated_fat_g: string;
+  sodium_mg: string;
+}
+
+const EMPTY_MACRO_FORM: MacroFormState = {
+  name: "",
+  serving_size: "100",
+  serving_unit: "g",
+  calories: "",
+  protein_g: "",
+  carbs_g: "",
+  fat_g: "",
+  fiber_g: "",
+  saturated_fat_g: "",
+  sodium_mg: "",
 };
 
 interface Props {
@@ -68,11 +101,17 @@ export function Nutrition({ onAuthError }: Props) {
   const [manualCalories, setManualCalories] = useState(false);
   const [adding, setAdding] = useState(false);
 
+  // ── Re-log a planned meal ────────────────────────────────────────────────
+  const [mealSourceDate, setMealSourceDate] = useState(() => localDateStr(new Date()));
+  const [mealLogCategory, setMealLogCategory] = useState("dinner");
+  const [loggingMeal, setLoggingMeal] = useState(false);
+  const [mealLogResult, setMealLogResult] = useState<string | null>(null);
+
   // ── Macros library state ─────────────────────────────────────────────────
   const [macrosLibrary, setMacrosLibrary] = useState<IngredientMacrosData[]>([]);
   const [macrosLoading, setMacrosLoading] = useState(true);
   const [macrosError, setMacrosError] = useState<string | null>(null);
-  const [macroForm, setMacroForm] = useState({ name: "", serving_size: "100", serving_unit: "g", calories: "", protein_g: "", carbs_g: "", fat_g: "" });
+  const [macroForm, setMacroForm] = useState<MacroFormState>(EMPTY_MACRO_FORM);
   const [editingMacro, setEditingMacro] = useState<string | null>(null);
 
   const loadDay = useCallback(async () => {
@@ -130,6 +169,9 @@ export function Nutrition({ onAuthError }: Props) {
         if (form.protein_g) entry["protein_g"] = Number(form.protein_g);
         if (form.carbs_g) entry["carbs_g"] = Number(form.carbs_g);
         if (form.fat_g) entry["fat_g"] = Number(form.fat_g);
+        if (form.fiber_g) entry["fiber_g"] = Number(form.fiber_g);
+        if (form.saturated_fat_g) entry["saturated_fat_g"] = Number(form.saturated_fat_g);
+        if (form.sodium_mg) entry["sodium_mg"] = Number(form.sodium_mg);
       }
       await addFoodLogEntries(date, [entry as never]);
       setForm(EMPTY_ENTRY_FORM);
@@ -140,6 +182,28 @@ export function Nutrition({ onAuthError }: Props) {
       setError(err instanceof Error ? err.message : "Failed to log entry");
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function handleLogMeal(e: Event) {
+    e.preventDefault();
+    setLoggingMeal(true);
+    setMealLogResult(null);
+    setError(null);
+    try {
+      const result = await logMealToFoodLog(mealSourceDate, { log_date: date, meal_category: mealLogCategory });
+      const logged = result.entries[0];
+      let msg = logged ? `Logged "${logged.name}" — ${round1(logged.calories)} cal` : "Logged";
+      if (result.missing_macros_for && result.missing_macros_for.length > 0) {
+        msg += ` (no stored macros for: ${result.missing_macros_for.join(", ")})`;
+      }
+      setMealLogResult(msg);
+      await loadDay();
+    } catch (err) {
+      onAuthError(err);
+      setError(err instanceof Error ? err.message : "Failed to log meal");
+    } finally {
+      setLoggingMeal(false);
     }
   }
 
@@ -167,8 +231,11 @@ export function Nutrition({ onAuthError }: Props) {
         protein_g: macroForm.protein_g ? Number(macroForm.protein_g) : undefined,
         carbs_g: macroForm.carbs_g ? Number(macroForm.carbs_g) : undefined,
         fat_g: macroForm.fat_g ? Number(macroForm.fat_g) : undefined,
+        fiber_g: macroForm.fiber_g ? Number(macroForm.fiber_g) : undefined,
+        saturated_fat_g: macroForm.saturated_fat_g ? Number(macroForm.saturated_fat_g) : undefined,
+        sodium_mg: macroForm.sodium_mg ? Number(macroForm.sodium_mg) : undefined,
       });
-      setMacroForm({ name: "", serving_size: "100", serving_unit: "g", calories: "", protein_g: "", carbs_g: "", fat_g: "" });
+      setMacroForm(EMPTY_MACRO_FORM);
       setEditingMacro(null);
       await loadMacros();
     } catch (err) {
@@ -187,6 +254,9 @@ export function Nutrition({ onAuthError }: Props) {
       protein_g: m.protein_g != null ? String(m.protein_g) : "",
       carbs_g: m.carbs_g != null ? String(m.carbs_g) : "",
       fat_g: m.fat_g != null ? String(m.fat_g) : "",
+      fiber_g: m.fiber_g != null ? String(m.fiber_g) : "",
+      saturated_fat_g: m.saturated_fat_g != null ? String(m.saturated_fat_g) : "",
+      sodium_mg: m.sodium_mg != null ? String(m.sodium_mg) : "",
     });
   }
 
@@ -253,8 +323,50 @@ export function Nutrition({ onAuthError }: Props) {
               <span class="nutrition-total-label">Fat</span>
             </div>
           </div>
+          <div class="nutrition-totals-bar nutrition-totals-bar--secondary">
+            <div class="nutrition-total-stat nutrition-total-stat--small">
+              <span class="nutrition-total-value">{round1(totals.fiber_g)}g</span>
+              <span class="nutrition-total-label">Fiber</span>
+            </div>
+            <div class="nutrition-total-stat nutrition-total-stat--small">
+              <span class="nutrition-total-value">{round1(totals.saturated_fat_g)}g</span>
+              <span class="nutrition-total-label">Sat fat</span>
+            </div>
+            <div class="nutrition-total-stat nutrition-total-stat--small">
+              <span class="nutrition-total-value">{round1(totals.sodium_mg)}mg</span>
+              <span class="nutrition-total-label">Sodium</span>
+            </div>
+          </div>
 
           {error && <p class="inline-error">{error}</p>}
+
+          <form class="nutrition-add-form" onSubmit={handleLogMeal}>
+            <h3 class="nutrition-form-title">Re-log a planned meal</h3>
+            <p class="nutrition-form-hint">
+              Pulls the ingredient list from a saved meal plan entry and computes calories/macros from the macros library — no retyping a recipe's nutrition by hand.
+            </p>
+            <div class="nutrition-form-row">
+              <label class="nutrition-inline-label">
+                From date
+                <input
+                  type="date"
+                  value={mealSourceDate}
+                  onInput={e => setMealSourceDate((e.target as HTMLInputElement).value)}
+                />
+              </label>
+              <input
+                type="text"
+                list="meal-category-options"
+                placeholder="Meal (e.g. dinner)"
+                value={mealLogCategory}
+                onInput={e => setMealLogCategory((e.target as HTMLInputElement).value)}
+              />
+              <button type="submit" class="btn-secondary" disabled={loggingMeal}>
+                {loggingMeal ? "Logging…" : `Log to ${date}`}
+              </button>
+            </div>
+            {mealLogResult && <p class="nutrition-relog-result">{mealLogResult}</p>}
+          </form>
 
           <form class="nutrition-add-form" onSubmit={handleAddEntry}>
             <datalist id="macro-name-options">
@@ -329,6 +441,28 @@ export function Nutrition({ onAuthError }: Props) {
                 />
               </div>
             )}
+            {manualCalories && (
+              <div class="nutrition-form-row">
+                <input
+                  type="number"
+                  placeholder="Fiber (g)"
+                  value={form.fiber_g}
+                  onInput={e => setForm(s => ({ ...s, fiber_g: (e.target as HTMLInputElement).value }))}
+                />
+                <input
+                  type="number"
+                  placeholder="Saturated fat (g)"
+                  value={form.saturated_fat_g}
+                  onInput={e => setForm(s => ({ ...s, saturated_fat_g: (e.target as HTMLInputElement).value }))}
+                />
+                <input
+                  type="number"
+                  placeholder="Sodium (mg)"
+                  value={form.sodium_mg}
+                  onInput={e => setForm(s => ({ ...s, sodium_mg: (e.target as HTMLInputElement).value }))}
+                />
+              </div>
+            )}
             {!manualCalories && (
               <p class="nutrition-form-hint">
                 Leave quantity blank to log a full serving, based on the stored macros for this name.
@@ -364,6 +498,9 @@ export function Nutrition({ onAuthError }: Props) {
                       {entry.protein_g != null && <span>{round1(entry.protein_g)}g P</span>}
                       {entry.carbs_g != null && <span>{round1(entry.carbs_g)}g C</span>}
                       {entry.fat_g != null && <span>{round1(entry.fat_g)}g F</span>}
+                      {entry.fiber_g != null && <span>{round1(entry.fiber_g)}g fiber</span>}
+                      {entry.saturated_fat_g != null && <span>{round1(entry.saturated_fat_g)}g sat fat</span>}
+                      {entry.sodium_mg != null && <span>{round1(entry.sodium_mg)}mg Na</span>}
                     </div>
                     <button class="btn-danger nutrition-entry-delete" onClick={() => void handleDeleteEntry(entry.id)}>
                       Delete
@@ -429,6 +566,26 @@ export function Nutrition({ onAuthError }: Props) {
                 onInput={e => setMacroForm(s => ({ ...s, fat_g: (e.target as HTMLInputElement).value }))}
               />
             </div>
+            <div class="nutrition-form-row">
+              <input
+                type="number"
+                placeholder="Fiber (g)"
+                value={macroForm.fiber_g}
+                onInput={e => setMacroForm(s => ({ ...s, fiber_g: (e.target as HTMLInputElement).value }))}
+              />
+              <input
+                type="number"
+                placeholder="Saturated fat (g)"
+                value={macroForm.saturated_fat_g}
+                onInput={e => setMacroForm(s => ({ ...s, saturated_fat_g: (e.target as HTMLInputElement).value }))}
+              />
+              <input
+                type="number"
+                placeholder="Sodium (mg)"
+                value={macroForm.sodium_mg}
+                onInput={e => setMacroForm(s => ({ ...s, sodium_mg: (e.target as HTMLInputElement).value }))}
+              />
+            </div>
             <div class="nutrition-form-actions">
               <button type="submit" class="btn-primary" disabled={!macroForm.name.trim() || !macroForm.calories}>
                 {editingMacro ? "Save changes" : "Add to library"}
@@ -437,7 +594,7 @@ export function Nutrition({ onAuthError }: Props) {
                 <button
                   type="button"
                   class="btn-secondary"
-                  onClick={() => { setEditingMacro(null); setMacroForm({ name: "", serving_size: "100", serving_unit: "g", calories: "", protein_g: "", carbs_g: "", fat_g: "" }); }}
+                  onClick={() => { setEditingMacro(null); setMacroForm(EMPTY_MACRO_FORM); }}
                 >
                   Cancel
                 </button>
@@ -459,6 +616,9 @@ export function Nutrition({ onAuthError }: Props) {
                   <th>Protein (g)</th>
                   <th>Carbs (g)</th>
                   <th>Fat (g)</th>
+                  <th>Fiber (g)</th>
+                  <th>Sat fat (g)</th>
+                  <th>Sodium (mg)</th>
                   <th />
                 </tr>
               </thead>
@@ -471,6 +631,9 @@ export function Nutrition({ onAuthError }: Props) {
                     <td>{m.protein_g ?? "—"}</td>
                     <td>{m.carbs_g ?? "—"}</td>
                     <td>{m.fat_g ?? "—"}</td>
+                    <td>{m.fiber_g ?? "—"}</td>
+                    <td>{m.saturated_fat_g ?? "—"}</td>
+                    <td>{m.sodium_mg ?? "—"}</td>
                     <td>
                       <div class="row-actions">
                         <button onClick={() => startEditMacro(m)}>Edit</button>

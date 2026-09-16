@@ -52,6 +52,9 @@ export interface IngredientMacrosData {
   protein_g: number | null;
   carbs_g: number | null;
   fat_g: number | null;
+  fiber_g: number | null;
+  saturated_fat_g: number | null;
+  sodium_mg: number | null;
 }
 
 export interface FoodLogEntryData {
@@ -65,6 +68,9 @@ export interface FoodLogEntryData {
   protein_g: number | null;
   carbs_g: number | null;
   fat_g: number | null;
+  fiber_g: number | null;
+  saturated_fat_g: number | null;
+  sodium_mg: number | null;
 }
 
 export interface NutritionTotals {
@@ -72,4 +78,7 @@ export interface NutritionTotals {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
+  fiber_g: number;
+  saturated_fat_g: number;
+  sodium_mg: number;
 }

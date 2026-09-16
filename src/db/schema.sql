@@ -78,6 +78,9 @@ CREATE TABLE ingredient_macros (
   protein_g REAL,
   carbs_g REAL,
   fat_g REAL,
+  fiber_g REAL,
+  saturated_fat_g REAL,
+  sodium_mg REAL,
   updated_at INTEGER NOT NULL
 );
 
@@ -93,6 +96,9 @@ CREATE TABLE food_log_entries (
   protein_g REAL,
   carbs_g REAL,
   fat_g REAL,
+  fiber_g REAL,
+  saturated_fat_g REAL,
+  sodium_mg REAL,
   created_at INTEGER NOT NULL
 );
 

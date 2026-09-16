@@ -234,6 +234,9 @@ export const setIngredientMacros = (macros: {
   protein_g?: number;
   carbs_g?: number;
   fat_g?: number;
+  fiber_g?: number;
+  saturated_fat_g?: number;
+  sodium_mg?: number;
 }) => mcpCall<IngredientMacrosData>("ingredient_macros_set", macros as Record<string, unknown>);
 
 export const deleteIngredientMacros = (name: string) =>
@@ -243,6 +246,7 @@ export interface FoodLogDay {
   date: string;
   entries: FoodLogEntryData[];
   totals: NutritionTotals;
+  missing_macros_for?: string[];
 }
 
 export interface FoodLogEntryInput {
@@ -254,6 +258,9 @@ export interface FoodLogEntryInput {
   protein_g?: number;
   carbs_g?: number;
   fat_g?: number;
+  fiber_g?: number;
+  saturated_fat_g?: number;
+  sodium_mg?: number;
 }
 
 export const addFoodLogEntries = (date: string, entries: FoodLogEntryInput[]) =>
@@ -267,6 +274,9 @@ export const getFoodLogRange = (dateFrom: string, dateTo: string) =>
 
 export const deleteFoodLogEntries = (opts: { ids?: string[]; dates?: string[] }) =>
   mcpCall<{ deleted: number }>("food_log_delete", opts as Record<string, unknown>);
+
+export const logMealToFoodLog = (date: string, opts: { log_date?: string; meal_category?: string } = {}) =>
+  mcpCall<FoodLogDay>("food_log_log_meal", { date, ...opts });
 
 export const exportGroceryListToKeep = (params: {
   date_from: string;

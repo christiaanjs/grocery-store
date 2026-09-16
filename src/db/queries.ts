@@ -697,6 +697,9 @@ export async function upsertIngredientMacros(
     proteinG?: number | null;
     carbsG?: number | null;
     fatG?: number | null;
+    fiberG?: number | null;
+    saturatedFatG?: number | null;
+    sodiumMg?: number | null;
   },
 ): Promise<IngredientMacros> {
   const now = Date.now();
@@ -706,23 +709,38 @@ export async function upsertIngredientMacros(
   const proteinG = macros.proteinG !== undefined ? macros.proteinG : existing?.protein_g ?? null;
   const carbsG = macros.carbsG !== undefined ? macros.carbsG : existing?.carbs_g ?? null;
   const fatG = macros.fatG !== undefined ? macros.fatG : existing?.fat_g ?? null;
+  const fiberG = macros.fiberG !== undefined ? macros.fiberG : existing?.fiber_g ?? null;
+  const saturatedFatG = macros.saturatedFatG !== undefined ? macros.saturatedFatG : existing?.saturated_fat_g ?? null;
+  const sodiumMg = macros.sodiumMg !== undefined ? macros.sodiumMg : existing?.sodium_mg ?? null;
 
   if (existing) {
     await db
       .prepare(
-        "UPDATE ingredient_macros SET serving_size = ?, serving_unit = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, updated_at = ? WHERE id = ?",
+        "UPDATE ingredient_macros SET serving_size = ?, serving_unit = ?, calories = ?, protein_g = ?, carbs_g = ?, fat_g = ?, fiber_g = ?, saturated_fat_g = ?, sodium_mg = ?, updated_at = ? WHERE id = ?",
       )
-      .bind(servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, now, existing.id)
+      .bind(servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, fiberG, saturatedFatG, sodiumMg, now, existing.id)
       .run();
-    return { ...existing, serving_size: servingSize, serving_unit: servingUnit, calories: macros.calories, protein_g: proteinG, carbs_g: carbsG, fat_g: fatG, updated_at: now };
+    return {
+      ...existing,
+      serving_size: servingSize,
+      serving_unit: servingUnit,
+      calories: macros.calories,
+      protein_g: proteinG,
+      carbs_g: carbsG,
+      fat_g: fatG,
+      fiber_g: fiberG,
+      saturated_fat_g: saturatedFatG,
+      sodium_mg: sodiumMg,
+      updated_at: now,
+    };
   }
 
   const id = crypto.randomUUID();
   await db
     .prepare(
-      "INSERT INTO ingredient_macros (id, household_id, name, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO ingredient_macros (id, household_id, name, serving_size, serving_unit, calories, protein_g, carbs_g, fat_g, fiber_g, saturated_fat_g, sodium_mg, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id, householdId, macros.name, servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, now)
+    .bind(id, householdId, macros.name, servingSize, servingUnit, macros.calories, proteinG, carbsG, fatG, fiberG, saturatedFatG, sodiumMg, now)
     .run();
 
   return {
@@ -735,6 +753,9 @@ export async function upsertIngredientMacros(
     protein_g: proteinG,
     carbs_g: carbsG,
     fat_g: fatG,
+    fiber_g: fiberG,
+    saturated_fat_g: saturatedFatG,
+    sodium_mg: sodiumMg,
     updated_at: now,
   };
 }
@@ -766,6 +787,9 @@ export async function addFoodLogEntries(
     proteinG?: number | null;
     carbsG?: number | null;
     fatG?: number | null;
+    fiberG?: number | null;
+    saturatedFatG?: number | null;
+    sodiumMg?: number | null;
   }>,
 ): Promise<FoodLogEntry[]> {
   const now = Date.now();
@@ -781,15 +805,18 @@ export async function addFoodLogEntries(
     protein_g: e.proteinG ?? null,
     carbs_g: e.carbsG ?? null,
     fat_g: e.fatG ?? null,
+    fiber_g: e.fiberG ?? null,
+    saturated_fat_g: e.saturatedFatG ?? null,
+    sodium_mg: e.sodiumMg ?? null,
     created_at: now,
   }));
 
   const statements = rows.map((r) =>
     db
       .prepare(
-        "INSERT INTO food_log_entries (id, household_id, date, meal_category, name, quantity, unit, calories, protein_g, carbs_g, fat_g, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO food_log_entries (id, household_id, date, meal_category, name, quantity, unit, calories, protein_g, carbs_g, fat_g, fiber_g, saturated_fat_g, sodium_mg, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .bind(r.id, r.household_id, r.date, r.meal_category, r.name, r.quantity, r.unit, r.calories, r.protein_g, r.carbs_g, r.fat_g, r.created_at),
+      .bind(r.id, r.household_id, r.date, r.meal_category, r.name, r.quantity, r.unit, r.calories, r.protein_g, r.carbs_g, r.fat_g, r.fiber_g, r.saturated_fat_g, r.sodium_mg, r.created_at),
   );
   if (statements.length > 0) await db.batch(statements);
 
