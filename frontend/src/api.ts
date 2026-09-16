@@ -231,12 +231,13 @@ export const setIngredientMacros = (macros: {
   serving_size?: number;
   serving_unit?: string;
   calories: number;
-  protein_g?: number;
-  carbs_g?: number;
-  fat_g?: number;
-  fiber_g?: number;
-  saturated_fat_g?: number;
-  sodium_mg?: number;
+  // null explicitly clears a previously stored value; omitting the key leaves it unchanged.
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  fiber_g?: number | null;
+  saturated_fat_g?: number | null;
+  sodium_mg?: number | null;
 }) => mcpCall<IngredientMacrosData>("ingredient_macros_set", macros as Record<string, unknown>);
 
 export const deleteIngredientMacros = (name: string) =>

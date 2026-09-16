@@ -25,6 +25,35 @@ function addDays(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Exact metric conversions only — no cross-family (mass<->volume) or imperial
+// approximations, since those would silently produce wrong nutrition numbers.
+const MASS_TO_GRAMS: Record<string, number> = {
+  g: 1, gram: 1, grams: 1,
+  kg: 1000, kilogram: 1000, kilograms: 1000,
+  mg: 0.001, milligram: 0.001, milligrams: 0.001,
+};
+const VOLUME_TO_ML: Record<string, number> = {
+  ml: 1, millilitre: 1, millilitres: 1, milliliter: 1, milliliters: 1,
+  l: 1000, litre: 1000, litres: 1000, liter: 1000, liters: 1000,
+};
+
+// Converts `quantity` from `fromUnit` into `toUnit`. A missing fromUnit is assumed to
+// already be in toUnit (preserves prior behavior when no unit is given). Returns null
+// when the units are unknown or from incompatible families (mass vs. volume, etc.) —
+// callers must treat that as "can't safely scale" rather than silently using quantity as-is.
+function convertQuantity(quantity: number, fromUnit: string | undefined, toUnit: string): number | null {
+  const from = (fromUnit ?? toUnit).trim().toLowerCase();
+  const to = toUnit.trim().toLowerCase();
+  if (from === to) return quantity;
+  if (from in MASS_TO_GRAMS && to in MASS_TO_GRAMS) {
+    return (quantity * MASS_TO_GRAMS[from]!) / MASS_TO_GRAMS[to]!;
+  }
+  if (from in VOLUME_TO_ML && to in VOLUME_TO_ML) {
+    return (quantity * VOLUME_TO_ML[from]!) / VOLUME_TO_ML[to]!;
+  }
+  return null;
+}
+
 function parseDateRange(args: Record<string, unknown>): { date?: string; dateFrom: string; dateTo: string } {
   if (typeof args["date"] === "string") {
     return { date: args["date"], dateFrom: args["date"], dateTo: args["date"] };
@@ -74,6 +103,16 @@ function toMacrosData(row: IngredientMacros): IngredientMacrosData {
     saturated_fat_g: row.saturated_fat_g,
     sodium_mg: row.sodium_mg,
   };
+}
+
+// Distinguishes "key absent" (undefined — preserve the existing stored value on update)
+// from "key explicitly null" (clear the stored value) from "key is a number" (set it).
+// A present-but-wrong-typed value is treated as absent/preserve.
+function optionalNumber(args: Record<string, unknown>, key: string): number | null | undefined {
+  if (!(key in args)) return undefined;
+  const value = args[key];
+  if (value === null) return null;
+  return typeof value === "number" ? value : undefined;
 }
 
 function zeroTotals(): NutritionTotals {
@@ -148,7 +187,16 @@ async function resolveEntry(
       error: `entries[${index}] ("${name}") has no calories and no stored macros were found — provide calories directly or add it via ingredient_macros_set first`,
     };
   }
-  const ratio = quantity !== undefined ? quantity / macros.serving_size : 1;
+  let ratio = 1;
+  if (quantity !== undefined) {
+    const converted = convertQuantity(quantity, unit, macros.serving_unit);
+    if (converted === null) {
+      return {
+        error: `entries[${index}] ("${name}") has quantity in "${unit}" but stored macros are per "${macros.serving_unit}" — use a matching/convertible unit or provide calories directly`,
+      };
+    }
+    ratio = converted / macros.serving_size;
+  }
   return {
     entry: {
       mealCategory,
@@ -184,7 +232,15 @@ async function computeMealNutrition(
       missing.push(ing.name);
       continue;
     }
-    const ratio = ing.quantity !== undefined ? ing.quantity / macros.serving_size : 1;
+    let ratio = 1;
+    if (ing.quantity !== undefined) {
+      const converted = convertQuantity(ing.quantity, ing.unit, macros.serving_unit);
+      if (converted === null) {
+        missing.push(`${ing.name} (unit mismatch: "${ing.unit}" vs. stored "${macros.serving_unit}")`);
+        continue;
+      }
+      ratio = converted / macros.serving_size;
+    }
     totals.calories += macros.calories * ratio;
     found.add("calories");
     for (const [field, value] of [
@@ -218,7 +274,7 @@ export const NUTRITION_TOOLS: ToolDefinition[] = [
   {
     name: "ingredient_macros_set",
     description:
-      "Store or update the calorie/macro profile for an ingredient, per a given serving size (e.g. 100g). Used to auto-calculate calories when logging that ingredient by quantity.",
+      "Store or update the calorie/macro profile for an ingredient, per a given serving size (e.g. 100g). Used to auto-calculate calories when logging that ingredient by quantity. When updating an existing profile, omitting an optional macro field leaves its stored value unchanged — pass it as null explicitly to clear it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -328,17 +384,23 @@ export async function handleNutritionTool(
       if (typeof args["calories"] !== "number") {
         return { content: [{ type: "text", text: "calories is required" }], isError: true };
       }
+      if (
+        args["serving_size"] !== undefined &&
+        (typeof args["serving_size"] !== "number" || !Number.isFinite(args["serving_size"]) || args["serving_size"] <= 0)
+      ) {
+        return { content: [{ type: "text", text: "serving_size must be a positive number" }], isError: true };
+      }
       const macros = await upsertIngredientMacros(db, householdId, {
         name: args["name"],
         servingSize: typeof args["serving_size"] === "number" ? args["serving_size"] : undefined,
         servingUnit: typeof args["serving_unit"] === "string" ? args["serving_unit"] : undefined,
         calories: args["calories"],
-        proteinG: typeof args["protein_g"] === "number" ? args["protein_g"] : undefined,
-        carbsG: typeof args["carbs_g"] === "number" ? args["carbs_g"] : undefined,
-        fatG: typeof args["fat_g"] === "number" ? args["fat_g"] : undefined,
-        fiberG: typeof args["fiber_g"] === "number" ? args["fiber_g"] : undefined,
-        saturatedFatG: typeof args["saturated_fat_g"] === "number" ? args["saturated_fat_g"] : undefined,
-        sodiumMg: typeof args["sodium_mg"] === "number" ? args["sodium_mg"] : undefined,
+        proteinG: optionalNumber(args, "protein_g"),
+        carbsG: optionalNumber(args, "carbs_g"),
+        fatG: optionalNumber(args, "fat_g"),
+        fiberG: optionalNumber(args, "fiber_g"),
+        saturatedFatG: optionalNumber(args, "saturated_fat_g"),
+        sodiumMg: optionalNumber(args, "sodium_mg"),
       });
       return { content: [{ type: "text", text: JSON.stringify(toMacrosData(macros), null, 2) }] };
     }

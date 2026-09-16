@@ -223,17 +223,19 @@ export function Nutrition({ onAuthError }: Props) {
     const name = macroForm.name.trim();
     if (!name || !macroForm.calories) return;
     try {
+      // This form always represents the full desired state, so an empty field means
+      // "clear this value" (null), not "leave whatever was there before" (undefined).
       await setIngredientMacros({
         name,
         serving_size: macroForm.serving_size ? Number(macroForm.serving_size) : undefined,
         serving_unit: macroForm.serving_unit.trim() || undefined,
         calories: Number(macroForm.calories),
-        protein_g: macroForm.protein_g ? Number(macroForm.protein_g) : undefined,
-        carbs_g: macroForm.carbs_g ? Number(macroForm.carbs_g) : undefined,
-        fat_g: macroForm.fat_g ? Number(macroForm.fat_g) : undefined,
-        fiber_g: macroForm.fiber_g ? Number(macroForm.fiber_g) : undefined,
-        saturated_fat_g: macroForm.saturated_fat_g ? Number(macroForm.saturated_fat_g) : undefined,
-        sodium_mg: macroForm.sodium_mg ? Number(macroForm.sodium_mg) : undefined,
+        protein_g: macroForm.protein_g ? Number(macroForm.protein_g) : null,
+        carbs_g: macroForm.carbs_g ? Number(macroForm.carbs_g) : null,
+        fat_g: macroForm.fat_g ? Number(macroForm.fat_g) : null,
+        fiber_g: macroForm.fiber_g ? Number(macroForm.fiber_g) : null,
+        saturated_fat_g: macroForm.saturated_fat_g ? Number(macroForm.saturated_fat_g) : null,
+        sodium_mg: macroForm.sodium_mg ? Number(macroForm.sodium_mg) : null,
       });
       setMacroForm(EMPTY_MACRO_FORM);
       setEditingMacro(null);
